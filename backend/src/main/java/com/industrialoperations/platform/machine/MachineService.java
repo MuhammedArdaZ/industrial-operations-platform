@@ -18,7 +18,7 @@ public class MachineService {
     public Machine createMachine(String name, String externalReference) {
         if (externalReference != null && !externalReference.isBlank()) {
             if (machineRepository.existsByExternalReference(externalReference)) {
-                throw new IllegalArgumentException("External reference already in use: " + externalReference);
+                throw new DuplicateExternalReferenceException("External reference already in use: " + externalReference);
             }
         }
         Machine machine = new Machine(name, externalReference);
@@ -28,6 +28,6 @@ public class MachineService {
     @Transactional(readOnly = true)
     public Machine getMachine(UUID id) {
         return machineRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Machine not found with id: " + id));
+                .orElseThrow(() -> new MachineNotFoundException("Machine not found with id: " + id));
     }
 }

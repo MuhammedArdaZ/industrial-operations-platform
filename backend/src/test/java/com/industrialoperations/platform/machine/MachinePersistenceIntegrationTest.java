@@ -1,4 +1,4 @@
-package com.industrialoperations.platform;
+package com.industrialoperations.platform.machine;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -14,8 +14,6 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import com.industrialoperations.platform.machine.Machine;
-import com.industrialoperations.platform.machine.MachineRepository;
 
 @SpringBootTest
 @ActiveProfiles("postgres")
