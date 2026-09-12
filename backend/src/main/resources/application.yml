@@ -1,0 +1,8 @@
+spring:
+  application:
+    name: industrial-operations-platform
+  profiles:
+    default: scaffold
+
+server:
+  port: ${SERVER_PORT:8080}
