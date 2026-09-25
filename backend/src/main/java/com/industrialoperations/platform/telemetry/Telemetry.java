@@ -5,6 +5,8 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
+import com.industrialoperations.platform.common.Measurements;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -35,7 +37,8 @@ public class Telemetry {
     private BigDecimal vibration;
 
     public Telemetry(UUID eventId, String sourceMessageId, String sensorId, UUID machineId, Instant occurredAt,
-            Instant receivedAt, BigDecimal temperature, BigDecimal vibration) {
+            Instant receivedAt, Measurements measurements) {
+        Objects.requireNonNull(measurements);
         this.telemetryId = UUID.randomUUID();
         this.eventId = Objects.requireNonNull(eventId);
         this.sourceMessageId = Objects.requireNonNull(sourceMessageId);
@@ -43,8 +46,8 @@ public class Telemetry {
         this.machineId = Objects.requireNonNull(machineId);
         this.occurredAt = Objects.requireNonNull(occurredAt);
         this.receivedAt = Objects.requireNonNull(receivedAt);
-        this.temperature = Objects.requireNonNull(temperature);
-        this.vibration = Objects.requireNonNull(vibration);
+        this.temperature = measurements.temperature();
+        this.vibration = measurements.vibration();
     }
 
     protected Telemetry() {

@@ -5,6 +5,8 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
+import com.industrialoperations.platform.common.Measurements;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -47,29 +49,23 @@ public class MachineLatestState {
 
     public MachineLatestState(UUID machineId, UUID telemetryId, UUID eventId, String sourceMessageId,
                               String sensorId, Instant occurredAt, Instant receivedAt,
-                              BigDecimal temperature, BigDecimal vibration) {
+                              Measurements measurements) {
         this.machineId = Objects.requireNonNull(machineId, "machineId cannot be null");
-        this.telemetryId = Objects.requireNonNull(telemetryId, "telemetryId cannot be null");
-        this.eventId = Objects.requireNonNull(eventId, "eventId cannot be null");
-        this.sourceMessageId = Objects.requireNonNull(sourceMessageId, "sourceMessageId cannot be null");
-        this.sensorId = Objects.requireNonNull(sensorId, "sensorId cannot be null");
-        this.occurredAt = Objects.requireNonNull(occurredAt, "occurredAt cannot be null");
-        this.receivedAt = Objects.requireNonNull(receivedAt, "receivedAt cannot be null");
-        this.temperature = Objects.requireNonNull(temperature, "temperature cannot be null");
-        this.vibration = Objects.requireNonNull(vibration, "vibration cannot be null");
+        update(telemetryId, eventId, sourceMessageId, sensorId, occurredAt, receivedAt, measurements);
     }
 
     public void update(UUID telemetryId, UUID eventId, String sourceMessageId,
                        String sensorId, Instant occurredAt, Instant receivedAt,
-                       BigDecimal temperature, BigDecimal vibration) {
+                       Measurements measurements) {
+        Objects.requireNonNull(measurements, "measurements cannot be null");
         this.telemetryId = Objects.requireNonNull(telemetryId, "telemetryId cannot be null");
         this.eventId = Objects.requireNonNull(eventId, "eventId cannot be null");
         this.sourceMessageId = Objects.requireNonNull(sourceMessageId, "sourceMessageId cannot be null");
         this.sensorId = Objects.requireNonNull(sensorId, "sensorId cannot be null");
         this.occurredAt = Objects.requireNonNull(occurredAt, "occurredAt cannot be null");
         this.receivedAt = Objects.requireNonNull(receivedAt, "receivedAt cannot be null");
-        this.temperature = Objects.requireNonNull(temperature, "temperature cannot be null");
-        this.vibration = Objects.requireNonNull(vibration, "vibration cannot be null");
+        this.temperature = measurements.temperature();
+        this.vibration = measurements.vibration();
     }
 
     public UUID getMachineId() {

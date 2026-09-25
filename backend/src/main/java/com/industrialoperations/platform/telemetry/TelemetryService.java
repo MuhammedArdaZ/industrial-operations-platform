@@ -1,7 +1,5 @@
 package com.industrialoperations.platform.telemetry;
 
-import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -9,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.industrialoperations.platform.machine.MachineService;
+import com.industrialoperations.platform.state.LatestStateUpdate;
 import com.industrialoperations.platform.state.MachineStateService;
 
 @Service
@@ -25,16 +24,22 @@ public class TelemetryService {
     }
 
     @Transactional
-    public Telemetry recordTelemetry(UUID eventId, String sourceMessageId, String sensorId, UUID machineId,
-            Instant occurredAt, Instant receivedAt, BigDecimal temperature, BigDecimal vibration) {
+    public Telemetry recordTelemetry(RecordTelemetryCommand command) {
 
-        Telemetry telemetry = new Telemetry(eventId, sourceMessageId, sensorId, machineId, occurredAt, receivedAt,
-                temperature, vibration);
+        Telemetry telemetry = new Telemetry(command.eventId(), command.sourceMessageId(), command.sensorId(),
+                command.machineId(), command.occurredAt(), command.receivedAt(), command.measurements());
 
         Telemetry saved = telemetryRepository.save(telemetry);
 
-        machineStateService.updateLatestState(machineId, saved.getTelemetryId(), eventId, sourceMessageId, sensorId, occurredAt,
-                receivedAt, temperature, vibration);
+        machineStateService.updateLatestState(new LatestStateUpdate(
+                command.machineId(),
+                saved.getTelemetryId(),
+                command.eventId(),
+                command.sourceMessageId(),
+                command.sensorId(),
+                command.occurredAt(),
+                command.receivedAt(),
+                command.measurements()));
 
         return saved;
     }

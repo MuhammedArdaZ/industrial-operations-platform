@@ -1,6 +1,7 @@
 package com.industrialoperations.platform.sensor;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -39,6 +40,11 @@ public class SensorService {
         machineService.getMachine(machineId);
         return sensorRepository.findByMachineId(machineId);
 
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<Sensor> findSensor(String sensorId){
+        return sensorRepository.findById(sensorId);
     }
 
 }

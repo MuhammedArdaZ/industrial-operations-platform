@@ -2,7 +2,37 @@ spring:
   application:
     name: industrial-operations-platform
   profiles:
-    default: scaffold
+    default: postgres
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP_ID:industrial-operations-telemetry}
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        spring.json.use.type.headers: false
+        spring.json.value.default.type: com.industrialoperations.platform.telemetry.TelemetryReceivedEvent
+    listener:
+      ack-mode: record
 
 server:
   port: ${SERVER_PORT:8080}
+
+platform:
+  kafka:
+    telemetry-topic: ${KAFKA_TELEMETRY_TOPIC:telemetry-events}
+  mqtt:
+    enabled: ${MQTT_ENABLED:true}
+    broker-url: ${MQTT_BROKER_URL:tcp://localhost:1883}
+    client-id: ${MQTT_CLIENT_ID:industrial-operations-ingestion}
+    topic-filter: ${MQTT_TOPIC_FILTER:industrial/v1/telemetry/+}
+    qos: ${MQTT_QOS:1}

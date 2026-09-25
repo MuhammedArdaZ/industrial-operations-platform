@@ -112,9 +112,9 @@ The ingestion adapter validates topic format, payload shape, required fields, ti
 ## Data and consistency model
 
 - **Machine** is the managed industrial asset.
-- **Sensor** belongs to a machine and identifies the origin of telemetry.
+- **Sensor** belongs to a machine and identifies the origin of telemetry. A sensor is a multi-measurement unit: one observation carries the full measurement set the unit reports, so `sensors.type` describes the kind of unit rather than a single measured quantity. When a unit that also reports pressure is introduced, it reports pressure alongside the existing measurements under a new `schemaVersion`.
 - **Telemetry** is an immutable observation associated with a sensor and authoritative machine. It retains `sourceMessageId`, `eventId`, `occurredAt`, and `receivedAt` for traceability and future idempotency work.
-- **Machine latest state** is a separate, query-oriented projection derived from valid persisted telemetry. It is not the source of historical truth.
+- **Machine latest state** is a separate, query-oriented projection derived from valid persisted telemetry. It is not the source of historical truth. Its ordering rule is strict: an observation replaces the stored state only when its `occurredAt` is strictly after the stored `occurredAt`. An older observation is ignored, and an observation with an identical `occurredAt` leaves the existing state in place, so the first arrival wins a tie. Ordering is decided on source observation time, never on arrival order.
 - **Alert** and **maintenance/work order** are reserved domain modules. They are excluded from Phase 1 and introduced in Phase 2 as useful business scenarios for distributed-systems experiments.
 
 ## Phase 1 consumer transaction boundary and delivery model
@@ -163,12 +163,12 @@ com.industrialoperations.platform
 ├── telemetry/     # event contract, processing use cases, Kafka producer/consumer adapters, telemetry persistence
 ├── state/         # latest-state projection and query use cases
 ├── ingestion/     # MQTT contract, validation, sensor lookup, event creation, Kafka handoff
-└── shared/        # narrowly scoped cross-cutting primitives; never a home for feature behavior
+└── common/        # narrowly scoped cross-cutting primitives; never a home for feature behavior
 ```
 
 Within a feature, `domain`, `application`, and `infrastructure` subpackages may be used when they clarify ownership. REST adapters stay with their feature; MQTT stays in `ingestion`; Kafka adapters stay in `telemetry` unless a later extraction makes another home clearer.
 
-Allowed dependency direction is adapters/infrastructure -> application -> domain. Feature dependencies follow machine <- sensor <- telemetry, while `state` consumes a stable telemetry application contract and must not depend on telemetry infrastructure. `ingestion` may depend on the sensor lookup and telemetry publishing application contracts, but not on state or persistence implementations. Cross-feature interaction occurs through interfaces or small value types owned by the providing feature. Dependencies must not point back upward or form cycles.
+Allowed dependency direction is adapters/infrastructure -> application -> domain. Feature dependencies follow machine <- sensor <- telemetry. `telemetry` depends on `state`, not the other way round: ADR-003 requires telemetry persistence and the latest-state projection to commit in one transaction, so telemetry invokes the projection synchronously. `state` owns the input contract of that call (`LatestStateUpdate`) and must not depend on telemetry's types or infrastructure. `ingestion` may depend on the sensor lookup and telemetry publishing application contracts, but not on state or persistence implementations. Cross-feature interaction occurs through interfaces or small value types owned by the providing feature. `common` holds only behaviour-free primitives shared by more than one feature; `Measurements` lives there because the latest-state projection stores the same measurement set as telemetry history by definition. A type that acquires feature-specific rules leaves `common`. Dependencies must not point back upward or form cycles.
 
 ## Database migration baseline
 

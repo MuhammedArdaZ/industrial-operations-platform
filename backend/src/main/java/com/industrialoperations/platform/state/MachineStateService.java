@@ -1,7 +1,5 @@
 package com.industrialoperations.platform.state;
 
-import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -18,25 +16,23 @@ public class MachineStateService {
     }
 
     @Transactional
-    public MachineLatestState updateLatestState(UUID machineId, UUID telemetryId, UUID eventId,
-            String sourceMessageId, String sensorId,
-            Instant occurredAt, Instant receivedAt,
-            BigDecimal temperature, BigDecimal vibration) {
+    public MachineLatestState updateLatestState(LatestStateUpdate update) {
 
-        Optional<MachineLatestState> existing = machineLatestStateRepository.findById(machineId);
+        Optional<MachineLatestState> existing = machineLatestStateRepository.findById(update.machineId());
 
         if (existing.isPresent()) {
             MachineLatestState state = existing.get();
 
-            if (occurredAt.isAfter(state.getOccurredAt())) {
-                state.update(telemetryId, eventId, sourceMessageId, sensorId, occurredAt, receivedAt, temperature,
-                        vibration);
+            if (update.occurredAt().isAfter(state.getOccurredAt())) {
+                state.update(update.telemetryId(), update.eventId(), update.sourceMessageId(),
+                        update.sensorId(), update.occurredAt(), update.receivedAt(), update.measurements());
                 return machineLatestStateRepository.save(state);
             }
             return state;
         } else {
-            MachineLatestState newState = new MachineLatestState(machineId, telemetryId, eventId, sourceMessageId,
-                    sensorId, occurredAt, receivedAt, temperature, vibration);
+            MachineLatestState newState = new MachineLatestState(update.machineId(), update.telemetryId(),
+                    update.eventId(), update.sourceMessageId(), update.sensorId(), update.occurredAt(),
+                    update.receivedAt(), update.measurements());
             return machineLatestStateRepository.save(newState);
         }
     }

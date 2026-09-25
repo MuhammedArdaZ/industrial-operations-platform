@@ -30,6 +30,7 @@ The platform ingests high-frequency telemetry from factory floor sensors via MQT
 - **[ADR-001: Modular Monolith](docs/adr/ADR-001-modular-monolith.md)** — One cohesive, deployable Spring Boot application with strict domain package boundaries. Extraction into independent microservices occurs only when concrete scaling or organizational needs emerge.
 - **[ADR-002: MQTT for Ingress, Kafka for Internal Transport](docs/adr/ADR-002-mqtt-and-kafka.md)** — MQTT satisfies lightweight device-level communication, while Kafka decouples ingestion from persistence, enabling consumer groups, replayability, and backpressure handling.
 - **[ADR-003: At-Least-Once Telemetry Processing](docs/adr/ADR-003-at-least-once-processing.md)** — A database transaction ensures immutable telemetry persistence and the latest-state projection are strictly atomic before acknowledging Kafka messages.
+- **[ADR-004: Kafka Event Contract and Failure Classification](docs/adr/ADR-004-kafka-event-contract-and-failure-classification.md)** — Language-neutral JSON on the wire with evolution governed by `schemaVersion`, `machineId` as the partition key, and an explicit split between permanently invalid messages and transient failures.
 
 ---
 
@@ -76,23 +77,23 @@ mvn clean verify
 
 ### 2. Running the Application Locally
 
-#### Option A: Infrastructure-Free Profile (`scaffold`)
-Starts the web application context without requiring external infrastructure:
+The application requires a reachable PostgreSQL instance; the `postgres` profile is the default. Flyway applies `V1__create_phase_1_baseline.sql` on startup. Every setting has a local default, so plain `mvn spring-boot:run` works against a local PostgreSQL on port 5432:
 
 ```bash
 mvn spring-boot:run
 ```
 
-#### Option B: Real PostgreSQL Profile (`postgres`)
-Applies Flyway migrations (`V1__create_phase_1_baseline.sql`) and binds to a live PostgreSQL instance:
+Override any of them through the environment:
 
 ```bash
-export SPRING_PROFILES_ACTIVE=postgres
 export DATABASE_URL=jdbc:postgresql://localhost:5432/industrial_operations
 export DATABASE_USERNAME=industrial_operations
 export DATABASE_PASSWORD=industrial_operations
+export KAFKA_BOOTSTRAP_SERVERS=localhost:9092
 mvn spring-boot:run
 ```
+
+The Kafka consumer starts with the application. Without a reachable broker the application still starts and serves REST traffic, but the telemetry listener logs connection failures until a broker is available.
 
 ---
 

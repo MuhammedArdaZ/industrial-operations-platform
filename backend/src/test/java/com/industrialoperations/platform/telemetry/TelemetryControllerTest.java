@@ -16,6 +16,8 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.industrialoperations.platform.common.Measurements;
+
 import com.industrialoperations.platform.machine.MachineNotFoundException;
 
 @WebMvcTest(TelemetryController.class)
@@ -38,9 +40,7 @@ class TelemetryControllerTest {
                 machineId,
                 Instant.parse("2026-09-16T12:00:00Z"),
                 Instant.parse("2026-09-16T12:00:01Z"),
-                new BigDecimal("72.50"),
-                new BigDecimal("0.015")
-        );
+                new Measurements(new BigDecimal("72.50"), new BigDecimal("0.015")));
 
         when(telemetryService.getTelemetryHistory(machineId)).thenReturn(List.of(telemetry));
 

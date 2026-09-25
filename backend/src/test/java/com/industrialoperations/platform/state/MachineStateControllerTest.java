@@ -15,6 +15,8 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.industrialoperations.platform.common.Measurements;
+
 @WebMvcTest(MachineStateController.class)
 class MachineStateControllerTest {
 
@@ -38,9 +40,7 @@ class MachineStateControllerTest {
                 "SENSOR-01",
                 Instant.parse("2026-09-16T12:00:00Z"),
                 Instant.parse("2026-09-16T12:00:01Z"),
-                new BigDecimal("68.40"),
-                new BigDecimal("0.021")
-        );
+                new Measurements(new BigDecimal("68.40"), new BigDecimal("0.021")));
 
         when(machineStateService.getLatestState(machineId)).thenReturn(state);
 

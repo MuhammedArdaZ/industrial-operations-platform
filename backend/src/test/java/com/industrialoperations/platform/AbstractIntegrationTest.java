@@ -10,12 +10,12 @@ import org.testcontainers.containers.PostgreSQLContainer;
 @ActiveProfiles("postgres")
 public abstract class AbstractIntegrationTest {
 
-    // static blok: Sınıf belleğe ilk yüklendiğinde SADECE 1 KEZ başlar
+    // Static singleton container: started once for the entire test suite lifecycle
     protected static final PostgreSQLContainer<?> POSTGRES;
 
     static {
         POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-        POSTGRES.start(); // Konteyneri başlat ve açık tut!
+        POSTGRES.start(); // Start container and keep running across test classes
     }
 
     @DynamicPropertySource
@@ -23,5 +23,10 @@ public abstract class AbstractIntegrationTest {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
+
+        // This base only provides PostgreSQL. Tests requiring MQTT and Kafka
+        // configure their own containers and enable these settings explicitly.
+        registry.add("platform.mqtt.enabled", () -> false);
+        registry.add("spring.kafka.listener.auto-startup", () -> false);
     }
 }
