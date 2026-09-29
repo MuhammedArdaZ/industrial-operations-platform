@@ -11,9 +11,13 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 
 @Entity
-@Table(name = "telemetry")
+@Table(name = "telemetry", uniqueConstraints = {
+        @UniqueConstraint(name = "uq_telemetry_sensor_source", columnNames = { "sensor_id", "source_message_id" }),
+        @UniqueConstraint(name = "uq_telemetry_event_id", columnNames = { "event_id" })
+})
 public class Telemetry {
 
     @Id

@@ -11,4 +11,11 @@ public interface TelemetryRepository extends JpaRepository<Telemetry, UUID>{
     
     List<Telemetry> findByMachineIdOrderByOccurredAtDesc(UUID machineId);
 
+    boolean existsBySensorIdAndSourceMessageId(String sensorId, String sourceMessageId);
+
+    boolean existsByEventId(UUID eventId);
+
+    java.util.Optional<Telemetry> findBySensorIdAndSourceMessageId(String sensorId, String sourceMessageId);
+
+    java.util.Optional<Telemetry> findByEventId(UUID eventId);
 }

@@ -2,6 +2,8 @@ package com.industrialoperations.platform.telemetry;
 
 import java.util.List;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -12,6 +14,8 @@ import com.industrialoperations.platform.state.MachineStateService;
 
 @Service
 public class TelemetryService {
+    private static final Logger log = LoggerFactory.getLogger(TelemetryService.class);
+
     private final TelemetryRepository telemetryRepository;
     private final MachineStateService machineStateService;
     private final MachineService machineService;
@@ -25,6 +29,16 @@ public class TelemetryService {
 
     @Transactional
     public Telemetry recordTelemetry(RecordTelemetryCommand command) {
+        if (telemetryRepository.existsBySensorIdAndSourceMessageId(command.sensorId(), command.sourceMessageId())) {
+            log.info("Duplicate telemetry detected for sensorId={} and sourceMessageId={}. Skipping.",
+                    command.sensorId(), command.sourceMessageId());
+            return telemetryRepository.findBySensorIdAndSourceMessageId(command.sensorId(), command.sourceMessageId())
+                    .orElse(null);
+        }
+        if (telemetryRepository.existsByEventId(command.eventId())) {
+            log.info("Duplicate telemetry detected for eventId={}. Skipping.", command.eventId());
+            return telemetryRepository.findByEventId(command.eventId()).orElse(null);
+        }
 
         Telemetry telemetry = new Telemetry(command.eventId(), command.sourceMessageId(), command.sensorId(),
                 command.machineId(), command.occurredAt(), command.receivedAt(), command.measurements());

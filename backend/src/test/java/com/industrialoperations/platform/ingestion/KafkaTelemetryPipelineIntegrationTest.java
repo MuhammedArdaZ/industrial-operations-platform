@@ -58,7 +58,8 @@ class KafkaTelemetryPipelineIntegrationTest extends AbstractIntegrationTest {
 
     @org.junit.jupiter.api.BeforeEach
     void setUp() {
-        for (org.springframework.kafka.listener.MessageListenerContainer container : kafkaListenerEndpointRegistry.getListenerContainers()) {
+        for (org.springframework.kafka.listener.MessageListenerContainer container : kafkaListenerEndpointRegistry
+                .getListenerContainers()) {
             if (!container.isRunning()) {
                 container.start();
             }
@@ -89,12 +90,12 @@ class KafkaTelemetryPipelineIntegrationTest extends AbstractIntegrationTest {
                 .atMost(Duration.ofSeconds(10))
                 .ignoreException(MachineStateNotFoundException.class)
                 .untilAsserted(() -> {
-            MachineLatestState machineLatestState = machineStateService.getLatestState(machine.getId());
+                    MachineLatestState machineLatestState = machineStateService.getLatestState(machine.getId());
 
-            assertThat(machineLatestState.getSensorId()).isEqualTo("sensor-pipe-01");
-            assertThat(machineLatestState.getTemperature()).isEqualByComparingTo("75.5");
-            assertThat(machineLatestState.getVibration()).isEqualByComparingTo("0.025");
-        });
+                    assertThat(machineLatestState.getSensorId()).isEqualTo("sensor-pipe-01");
+                    assertThat(machineLatestState.getTemperature()).isEqualByComparingTo("75.5");
+                    assertThat(machineLatestState.getVibration()).isEqualByComparingTo("0.025");
+                });
 
         var history = telemetryService.getTelemetryHistory(machine.getId());
         assertThat(history).hasSize(1);
