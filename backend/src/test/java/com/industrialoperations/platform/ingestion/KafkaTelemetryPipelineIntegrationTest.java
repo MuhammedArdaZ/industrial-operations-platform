@@ -1,8 +1,18 @@
 package com.industrialoperations.platform.ingestion;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Properties;
+import java.util.UUID;
 
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,6 +23,7 @@ import org.testcontainers.kafka.KafkaContainer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import org.apache.kafka.common.serialization.StringDeserializer;
 import com.industrialoperations.platform.AbstractIntegrationTest;
 import com.industrialoperations.platform.machine.Machine;
 import com.industrialoperations.platform.machine.MachineService;
@@ -20,6 +31,7 @@ import com.industrialoperations.platform.sensor.SensorService;
 import com.industrialoperations.platform.state.MachineLatestState;
 import com.industrialoperations.platform.state.MachineStateNotFoundException;
 import com.industrialoperations.platform.state.MachineStateService;
+import com.industrialoperations.platform.telemetry.TelemetryReceivedEvent;
 import com.industrialoperations.platform.telemetry.TelemetryService;
 
 class KafkaTelemetryPipelineIntegrationTest extends AbstractIntegrationTest {
@@ -55,6 +67,9 @@ class KafkaTelemetryPipelineIntegrationTest extends AbstractIntegrationTest {
 
     @Autowired
     private org.springframework.kafka.config.KafkaListenerEndpointRegistry kafkaListenerEndpointRegistry;
+
+    @Autowired
+    private org.springframework.kafka.core.KafkaTemplate<String, TelemetryReceivedEvent> kafkaTemplate;
 
     @org.junit.jupiter.api.BeforeEach
     void setUp() {
@@ -100,5 +115,52 @@ class KafkaTelemetryPipelineIntegrationTest extends AbstractIntegrationTest {
         var history = telemetryService.getTelemetryHistory(machine.getId());
         assertThat(history).hasSize(1);
         assertThat(history.get(0).getSourceMessageId()).isEqualTo("msg-001");
+    }
+
+    @Test
+    void shouldRejectInvalidMessageAndSendToDLT() {
+        Properties props = new Properties();
+
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, KAFKA.getBootstrapServers());
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, "dlt-test-group-" + UUID.randomUUID());
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+
+        try (KafkaConsumer<String, String> dltConsumer = new KafkaConsumer<>(props)) {
+
+            dltConsumer.subscribe(List.of("telemetry-events-dlt"));
+
+            Machine newMachine = machineService.createMachine("new-machine", "mach-1");
+
+            TelemetryReceivedEvent invalidEvent = new TelemetryReceivedEvent(UUID.randomUUID(),
+                    "INVALID_EVENT_TYPE", 1, Instant.now(), Instant.now(),
+                    new TelemetryReceivedEvent.Source("msg-bad-1", "sensor-bad", newMachine.getId()),
+                    new TelemetryReceivedEvent.Payload(new BigDecimal("90.0"), new BigDecimal("0.04")));
+
+            kafkaTemplate.send("telemetry-events", newMachine.getId().toString(), invalidEvent);
+
+            List<ConsumerRecord<String, String>> dltRecords = new ArrayList<>();
+
+            await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+                ConsumerRecords<String, String> records = dltConsumer.poll(Duration.ofMillis(200));
+                for (var r : records) {
+                    dltRecords.add(r);
+                }
+                assertThat(dltRecords).isNotEmpty();
+            });
+
+            var record = dltRecords.get(0);
+
+            var header = record.headers().lastHeader("kafka_dlt-exception-cause-fqcn");
+
+            assertThat(header).isNotNull();
+            assertThat(new String(header.value())).contains("InvalidTelemetryEventException");
+
+            var history = telemetryService.getTelemetryHistory(newMachine.getId());
+
+            assertThat(history).isEmpty();
+
+        }
     }
 }

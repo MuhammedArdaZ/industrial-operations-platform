@@ -22,4 +22,12 @@ public class KafkaTopicConfig {
                 .replicas(1)
                 .build();
     }
+
+    @Bean
+    public NewTopic telemetryDltTopic() {
+        return TopicBuilder.name(telemetryTopic + "-dlt")
+                .partitions(3)
+                .replicas(1)
+                .build();
+    }
 }
