@@ -57,7 +57,7 @@ Build a realistically finishable, event-driven backend for industrial equipment 
 - Add structured, correlation-friendly logs for ingestion and event processing without logging sensitive data.
 - Write focused JUnit 5 unit tests with implementation. Establish a narrow Testcontainers-backed Phase 1 integration baseline for the PostgreSQL, Kafka, and MQTT telemetry path; expand its coverage and run it in CI in Phase 3.
 - Keep configuration environment-driven, with safe local defaults and no committed secrets.
-- Update `docs/` when a major decision, flow, requirement, or phase scope changes.
+- Update `docs/` and synchronize `README.md` whenever a major decision, flow, requirement, or phase scope changes.
 
 ## Learning-oriented collaboration
 
@@ -81,4 +81,5 @@ This collaboration rule does not prevent read-only inspection, design discussion
 4. State the problem, proposed design, affected boundaries, and tests before non-trivial changes.
 5. Make the smallest coherent change, then run the relevant verification.
 6. Record material architecture decisions in the documentation (or an ADR when introduced).
-7. Do not install dependencies, alter infrastructure, or make external changes unless the task authorizes it.
+7. Keep `README.md` in sync with completed roadmap milestones, ADR references, migrations, and test additions after each milestone.
+8. Do not install dependencies, alter infrastructure, or make external changes unless the task authorizes it.
