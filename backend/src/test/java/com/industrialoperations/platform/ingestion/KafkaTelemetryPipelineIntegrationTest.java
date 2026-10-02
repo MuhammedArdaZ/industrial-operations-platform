@@ -27,10 +27,12 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import com.industrialoperations.platform.AbstractIntegrationTest;
 import com.industrialoperations.platform.machine.Machine;
 import com.industrialoperations.platform.machine.MachineService;
+import com.industrialoperations.platform.sensor.Sensor;
 import com.industrialoperations.platform.sensor.SensorService;
 import com.industrialoperations.platform.state.MachineLatestState;
 import com.industrialoperations.platform.state.MachineStateNotFoundException;
 import com.industrialoperations.platform.state.MachineStateService;
+import com.industrialoperations.platform.telemetry.TelemetryDltReplayService;
 import com.industrialoperations.platform.telemetry.TelemetryReceivedEvent;
 import com.industrialoperations.platform.telemetry.TelemetryService;
 
@@ -64,6 +66,9 @@ class KafkaTelemetryPipelineIntegrationTest extends AbstractIntegrationTest {
 
     @Autowired
     private TelemetryService telemetryService;
+
+    @Autowired
+    private TelemetryDltReplayService replayService;
 
     @Autowired
     private org.springframework.kafka.config.KafkaListenerEndpointRegistry kafkaListenerEndpointRegistry;
@@ -145,7 +150,9 @@ class KafkaTelemetryPipelineIntegrationTest extends AbstractIntegrationTest {
             await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
                 ConsumerRecords<String, String> records = dltConsumer.poll(Duration.ofMillis(200));
                 for (var r : records) {
-                    dltRecords.add(r);
+                    if (r.key() != null && r.key().equals(newMachine.getId().toString())) {
+                        dltRecords.add(r);
+                    }
                 }
                 assertThat(dltRecords).isNotEmpty();
             });
@@ -162,5 +169,29 @@ class KafkaTelemetryPipelineIntegrationTest extends AbstractIntegrationTest {
             assertThat(history).isEmpty();
 
         }
+    }
+
+    @Test
+    void shouldReplayMessagesFromDltAndProcessSuccessfully() {
+        Machine newMachine = machineService.createMachine("machine-1", "N1");
+        Sensor newSensor = sensorService.registerSensor(newMachine.getId(), "sensor-id", "sensor-1", "multi");
+
+        TelemetryReceivedEvent newEvent = new TelemetryReceivedEvent(UUID.randomUUID(),
+                "TelemetryReceived", 1, Instant.now(), Instant.now(),
+                new TelemetryReceivedEvent.Source("msg-1", "sensor-id", newMachine.getId()),
+                new TelemetryReceivedEvent.Payload(new BigDecimal("90.0"), new BigDecimal("0.04")));
+
+        kafkaTemplate.send("telemetry-events-dlt", newMachine.getId().toString(), newEvent);
+
+        int replayedCount = replayService.replay(10);
+        assertThat(replayedCount).isEqualTo(1);
+
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
+            var telemetryHistory = telemetryService.getTelemetryHistory(newMachine.getId());
+
+            assertThat(telemetryHistory).hasSize(1);
+
+            assertThat(replayService.replay(10)).isEqualTo(0);
+        });
     }
 }

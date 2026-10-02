@@ -22,8 +22,8 @@ The platform ingests high-frequency telemetry from factory floor sensors via MQT
           ▼                             ┌─────────────────────────────┐
 ┌───────────────────┐                   │  Dead Letter Topic (-dlt)   │
 │     REST API      │                   └──────────────┬──────────────┘
-└───────────────────┘                                  ┆
-                                                       ┆ Controlled Replay (In Progress)
+└───────────────────┘                                  │
+                                                       │ Controlled Replay (TelemetryDltReplayService)
                                                        ▼
                                         (Re-injected into Pipeline)
 ```
@@ -36,7 +36,7 @@ The platform ingests high-frequency telemetry from factory floor sensors via MQT
 - **[ADR-004: Kafka Event Contract and Failure Classification](docs/adr/ADR-004-kafka-event-contract-and-failure-classification.md)** — Language-neutral JSON on the wire with evolution governed by `schemaVersion`, `machineId` as the partition key, and an explicit split between permanently invalid messages and transient failures.
 - **[ADR-005: Telemetry Idempotency and Deduplication](docs/adr/ADR-005-telemetry-idempotency-and-deduplication.md)** — Enforces idempotent ingestion using composite natural keys `(sensor_id, source_message_id)` and UUID `event_id` across Flyway V2 constraints, preventing history inflation from edge/broker duplicate deliveries.
 - **[ADR-006: Dead Letter Topic and Consumer Retry Strategy](docs/adr/ADR-006-dead-letter-topic-and-retry-strategy.md)** — Implements `telemetry-events-dlt` with `DeadLetterPublishingRecoverer` and `FixedBackOff(1000L, 2L)` to quarantine unrecoverable poison pills without blocking Kafka partition consumption.
-- **[ADR-007: Controlled DLT Replay Strategy](docs/adr/ADR-007-controlled-dlt-replay.md)** *(In Progress)* — Administrative operator-triggered batch replay mechanism to reprocess quarantined dead-letter messages safely while preventing recursive loop ping-pong hazards.
+- **[ADR-007: Controlled DLT Replay Strategy](docs/adr/ADR-007-controlled-dlt-replay.md)** — Administrative operator-triggered batch replay mechanism to reprocess quarantined dead-letter messages safely while preventing recursive loop ping-pong hazards.
 
 ---
 
@@ -133,7 +133,7 @@ curl -s http://localhost:8080/api/v1/machines/<MACHINE_ID>/latest-state | jq .
   - [x] Idempotency & deduplication (`(sensor_id, source_message_id)`, Flyway V2, ADR-005)
   - [x] Kafka partition ordering strategy (`machineId` key, ADR-004)
   - [x] Dead Letter Topic & Poison Pill resilience (`telemetry-events-dlt`, `FixedBackOff`, ADR-006)
-  - [ ] Controlled replay of failed DLT events (`TelemetryDltReplayService`, ADR-007 — *In Progress*)
+  - [x] Controlled replay of failed DLT events (`TelemetryDltReplayService`, ADR-007)
   - [ ] Concurrency & optimistic locking (`@Version` on `MachineLatestState`)
   - [ ] Failure scenarios & consumer group rebalancing experiments
 - [ ] **Phase 3 — Production Readiness:** Full application containerization & Docker Compose orchestration, GitHub Actions CI, Prometheus metrics, Grafana dashboards, and Actuator health checks.
