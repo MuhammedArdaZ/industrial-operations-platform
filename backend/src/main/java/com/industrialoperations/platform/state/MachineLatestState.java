@@ -11,6 +11,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 @Entity
 @Table(name = "machine_latest_state")
@@ -44,19 +45,23 @@ public class MachineLatestState {
     @Column(name = "vibration", nullable = false)
     private BigDecimal vibration;
 
+    @Version
+    @Column(name = "version", nullable = false)
+    private Long version;
+
     protected MachineLatestState() {
     }
 
     public MachineLatestState(UUID machineId, UUID telemetryId, UUID eventId, String sourceMessageId,
-                              String sensorId, Instant occurredAt, Instant receivedAt,
-                              Measurements measurements) {
+            String sensorId, Instant occurredAt, Instant receivedAt,
+            Measurements measurements) {
         this.machineId = Objects.requireNonNull(machineId, "machineId cannot be null");
         update(telemetryId, eventId, sourceMessageId, sensorId, occurredAt, receivedAt, measurements);
     }
 
     public void update(UUID telemetryId, UUID eventId, String sourceMessageId,
-                       String sensorId, Instant occurredAt, Instant receivedAt,
-                       Measurements measurements) {
+            String sensorId, Instant occurredAt, Instant receivedAt,
+            Measurements measurements) {
         Objects.requireNonNull(measurements, "measurements cannot be null");
         this.telemetryId = Objects.requireNonNull(telemetryId, "telemetryId cannot be null");
         this.eventId = Objects.requireNonNull(eventId, "eventId cannot be null");
@@ -102,5 +107,9 @@ public class MachineLatestState {
 
     public BigDecimal getVibration() {
         return vibration;
+    }
+
+    public Long getVersion() {
+        return version;
     }
 }
