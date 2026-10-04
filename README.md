@@ -137,6 +137,6 @@ curl -s http://localhost:8080/api/v1/machines/<MACHINE_ID>/latest-state | jq .
   - [x] Concurrency & optimistic locking (`@Version` on `MachineLatestState`, Flyway V3, ADR-008)
 - [ ] **Phase 3 — Production Readiness:**
   - [x] Full application containerization & Docker Compose orchestration (`backend/Dockerfile`, dual Kafka listeners)
-  - [ ] GitHub Actions CI pipeline with Testcontainers verification
+  - [x] GitHub Actions CI pipeline with Testcontainers verification (`.github/workflows/ci.yml`)
   - [ ] Prometheus metrics endpoint & Actuator health checks
   - [ ] Grafana dashboards for telemetry pipeline observability

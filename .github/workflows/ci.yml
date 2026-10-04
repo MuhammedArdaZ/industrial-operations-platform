@@ -1,0 +1,53 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  backend-test-and-build:
+    name: Backend Build & Integration Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 25 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Make Maven wrapper executable
+        run: chmod +x backend/mvnw
+
+      - name: Run Maven build and Testcontainers integration tests
+        working-directory: backend
+        run: ./mvnw clean verify
+
+      - name: Verify multi-stage Docker build
+        run: docker build -t industrial-operations-backend:ci backend/
+
+  simulator-check:
+    name: Simulator Syntax & Dependencies Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: simulator/requirements.txt
+
+      - name: Install dependencies and verify syntax
+        run: |
+          pip install -r simulator/requirements.txt
+          python3 -m py_compile simulator/sensor_simulator.py
