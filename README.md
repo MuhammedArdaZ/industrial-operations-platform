@@ -90,7 +90,7 @@ mvn clean verify
 
 You can spin up the full pipeline locally (PostgreSQL, Mosquitto MQTT broker, Apache Kafka) in four simple steps:
 
-#### Step A: Start Infrastructure Containers
+#### Step A: Start Infrastructure & Backend Containers
 
 From the project root:
 
@@ -98,20 +98,13 @@ From the project root:
 docker compose up -d
 ```
 
-This boots:
-
-- **PostgreSQL 16** on port `5432`
+This boots the entire operational stack:
+- **PostgreSQL 16** on port `5432` (Flyway migrations `V1`, `V2`, `V3` auto-applied)
 - **Eclipse Mosquitto MQTT** on port `1883`
-- **Apache Kafka (KRaft)** on port `9092`
+- **Apache Kafka (KRaft)** on port `9092` (internal container listener on `29092`)
+- **Spring Boot Backend** on port `8080`
 
-#### Step B: Start the Spring Boot Backend
-
-Flyway automatically applies all database migrations (`V1`, `V2`) on startup:
-
-```bash
-cd backend
-mvn spring-boot:run
-```
+*(Optional: To run the Spring Boot backend locally from source instead of in Docker, run `docker compose up -d postgres mosquitto kafka` and then `mvn spring-boot:run` in `backend/`).*
 
 #### Step C: Run the Python Sensor Simulator
 
@@ -142,5 +135,8 @@ curl -s http://localhost:8080/api/v1/machines/<MACHINE_ID>/latest-state | jq .
   - [x] Dead Letter Topic & Poison Pill resilience (`telemetry-events-dlt`, `FixedBackOff`, ADR-006)
   - [x] Controlled replay of failed DLT events (`TelemetryDltReplayService`, ADR-007)
   - [x] Concurrency & optimistic locking (`@Version` on `MachineLatestState`, Flyway V3, ADR-008)
-  - [x] Failure scenarios & consumer group rebalancing experiments ([Matrix Report](docs/failure-scenarios-and-rebalancing.md))
-- [ ] **Phase 3 — Production Readiness:** Full application containerization & Docker Compose orchestration, GitHub Actions CI, Prometheus metrics, Grafana dashboards, and Actuator health checks.
+- [ ] **Phase 3 — Production Readiness:**
+  - [x] Full application containerization & Docker Compose orchestration (`backend/Dockerfile`, dual Kafka listeners)
+  - [ ] GitHub Actions CI pipeline with Testcontainers verification
+  - [ ] Prometheus metrics endpoint & Actuator health checks
+  - [ ] Grafana dashboards for telemetry pipeline observability
