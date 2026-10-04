@@ -91,17 +91,21 @@ mvn clean verify
 You can spin up the full pipeline locally (PostgreSQL, Mosquitto MQTT broker, Apache Kafka) in four simple steps:
 
 #### Step A: Start Infrastructure Containers
+
 From the project root:
 
 ```bash
 docker compose up -d
 ```
+
 This boots:
+
 - **PostgreSQL 16** on port `5432`
 - **Eclipse Mosquitto MQTT** on port `1883`
 - **Apache Kafka (KRaft)** on port `9092`
 
 #### Step B: Start the Spring Boot Backend
+
 Flyway automatically applies all database migrations (`V1`, `V2`) on startup:
 
 ```bash
@@ -110,6 +114,7 @@ mvn spring-boot:run
 ```
 
 #### Step C: Run the Python Sensor Simulator
+
 The simulator registers a machine/sensor via REST API and streams realistic telemetry through MQTT:
 
 ```bash
@@ -119,6 +124,7 @@ python3 sensor_simulator.py
 ```
 
 #### Step D: Verify via REST API
+
 Query the live machine latest-state projection (use the `machineId` printed in the sensor simulator console output; `jq` is optional for pretty-printing):
 
 ```bash
@@ -129,12 +135,12 @@ curl -s http://localhost:8080/api/v1/machines/<MACHINE_ID>/latest-state | jq .
 
 ## 🗺️ Engineering Roadmap
 
-- [x] **Phase 1 — Working Event-Driven Core:** End-to-end telemetry pipeline (Simulator $\rightarrow$ MQTT $\rightarrow$ Kafka $\rightarrow$ PostgreSQL $\rightarrow$ REST API), domain modeling, Flyway baseline, and Testcontainers integration tests.
-- [ ] **Phase 2 — Distributed Systems Depth:**
+- [x] **Phase 1 — Working Event-Driven Core:** End-to-end telemetry pipeline (Simulator → MQTT → Kafka → PostgreSQL → REST API), domain modeling, Flyway baseline, and Testcontainers integration tests.
+- [x] **Phase 2 — Distributed Systems Depth:**
   - [x] Idempotency & deduplication (`(sensor_id, source_message_id)`, Flyway V2, ADR-005)
   - [x] Kafka partition ordering strategy (`machineId` key, ADR-004)
   - [x] Dead Letter Topic & Poison Pill resilience (`telemetry-events-dlt`, `FixedBackOff`, ADR-006)
   - [x] Controlled replay of failed DLT events (`TelemetryDltReplayService`, ADR-007)
   - [x] Concurrency & optimistic locking (`@Version` on `MachineLatestState`, Flyway V3, ADR-008)
-  - [ ] Failure scenarios & consumer group rebalancing experiments
+  - [x] Failure scenarios & consumer group rebalancing experiments ([Matrix Report](docs/failure-scenarios-and-rebalancing.md))
 - [ ] **Phase 3 — Production Readiness:** Full application containerization & Docker Compose orchestration, GitHub Actions CI, Prometheus metrics, Grafana dashboards, and Actuator health checks.

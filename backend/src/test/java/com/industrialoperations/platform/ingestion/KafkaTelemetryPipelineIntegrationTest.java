@@ -194,4 +194,48 @@ class KafkaTelemetryPipelineIntegrationTest extends AbstractIntegrationTest {
             assertThat(replayService.replay(10)).isEqualTo(0);
         });
     }
+
+    @Test
+    void shouldBufferMessagesDuringConsumerDowntimeAndCatchUpOnRestart() {
+        Machine newMachine = machineService.createMachine("machine-1", "ext-machine-1");
+        Sensor newSensor = sensorService.registerSensor(newMachine.getId(), "sensor-id-1", "sensor-1", "multi-sensor");
+
+        for (var container : kafkaListenerEndpointRegistry.getListenerContainers()) {
+            container.stop();
+        }
+
+        kafkaTemplate.send("telemetry-events", newMachine.getId().toString(),
+                new TelemetryReceivedEvent(UUID.randomUUID(),
+                        "TelemetryReceived", 1, Instant.now(), Instant.now(),
+                        new TelemetryReceivedEvent.Source("msg-down-1", "sensor-id-1", newMachine.getId()),
+                        new TelemetryReceivedEvent.Payload(new BigDecimal("90.0"), new BigDecimal("0.04"))));
+
+        kafkaTemplate.send("telemetry-events", newMachine.getId().toString(),
+                new TelemetryReceivedEvent(UUID.randomUUID(),
+                        "TelemetryReceived", 1, Instant.now().plusSeconds(1), Instant.now(),
+                        new TelemetryReceivedEvent.Source("msg-down-2", "sensor-id-1", newMachine.getId()),
+                        new TelemetryReceivedEvent.Payload(new BigDecimal("90.0"), new BigDecimal("0.04"))));
+
+        kafkaTemplate.send("telemetry-events", newMachine.getId().toString(),
+                new TelemetryReceivedEvent(UUID.randomUUID(),
+                        "TelemetryReceived", 1, Instant.now().plusSeconds(2), Instant.now(),
+                        new TelemetryReceivedEvent.Source("msg-down-3", "sensor-id-1", newMachine.getId()),
+                        new TelemetryReceivedEvent.Payload(new BigDecimal("90.0"), new BigDecimal("0.04"))));
+
+        var historyBeforeStart = telemetryService.getTelemetryHistory(newMachine.getId());
+        assertThat(historyBeforeStart).isEmpty();
+
+        for (var container : kafkaListenerEndpointRegistry.getListenerContainers()) {
+            container.start();
+        }
+
+        await().atMost(Duration.ofSeconds(10)).ignoreException(MachineStateNotFoundException.class)
+                .untilAsserted(() -> {
+                    var historyAfterStart = telemetryService.getTelemetryHistory(newMachine.getId());
+                    assertThat(historyAfterStart).hasSize(3);
+
+                    var latestState = machineStateService.getLatestState(newMachine.getId());
+                    assertThat(latestState.getSourceMessageId()).isEqualTo("msg-down-3");
+                });
+    }
 }

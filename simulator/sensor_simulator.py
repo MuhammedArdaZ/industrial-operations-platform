@@ -54,6 +54,30 @@ def parse_args():
         help="Interval between messages in seconds (default: 1.0)",
     )
     parser.add_argument(
+        "--chaos-duplicates",
+        type=float,
+        default=float(os.getenv("CHAOS_DUPLICATES", "0.0")),
+        help="Probability (0.0 to 1.0) of sending duplicate telemetry (default: 0.0)",
+    )
+    parser.add_argument(
+        "--chaos-malformed",
+        type=float,
+        default=float(os.getenv("CHAOS_MALFORMED", "0.0")),
+        help="Probability (0.0 to 1.0) of sending malformed/poison pill payloads (default: 0.0)",
+    )
+    parser.add_argument(
+        "--chaos-abnormal",
+        type=float,
+        default=float(os.getenv("CHAOS_ABNORMAL", "0.0")),
+        help="Probability (0.0 to 1.0) of generating abnormal temperature/vibration spikes (default: 0.0)",
+    )
+    parser.add_argument(
+        "--burst-size",
+        type=int,
+        default=int(os.getenv("BURST_SIZE", "1")),
+        help="Number of messages to publish per interval cycle (default: 1)",
+    )
+    parser.add_argument(
         "--api-url",
         default=os.getenv("API_URL", "http://localhost:8080"),
         help="Spring Boot backend REST API base URL (default: http://localhost:8080)",
@@ -122,11 +146,25 @@ def ensure_sensor_registered(api_url: str, sensor_id: str, machine_id: str = Non
 
 
 class SensorSimulator:
-    def __init__(self, broker: str, port: int, sensor_id: str, interval: float):
+    def __init__(
+        self,
+        broker: str,
+        port: int,
+        sensor_id: str,
+        interval: float,
+        chaos_duplicates: float = 0.0,
+        chaos_malformed: float = 0.0,
+        chaos_abnormal: float = 0.0,
+        burst_size: int = 1,
+    ):
         self.broker = broker
         self.port = port
         self.sensor_id = sensor_id
         self.interval = interval
+        self.chaos_duplicates = chaos_duplicates
+        self.chaos_malformed = chaos_malformed
+        self.chaos_abnormal = chaos_abnormal
+        self.burst_size = burst_size
         self.topic = f"industrial/v1/telemetry/{sensor_id}"
 
         # Baseline parameters for realistic industrial telemetry
@@ -147,6 +185,13 @@ class SensorSimulator:
         logger.warning(f"Disconnected from MQTT broker (rc: {rc})")
 
     def _simulate_next_values(self):
+        # Chaos injection: abnormal spike
+        if self.chaos_abnormal > 0 and random.random() < self.chaos_abnormal:
+            abnormal_temp = round(random.uniform(120.0, 160.0), 2)
+            abnormal_vib = round(random.uniform(0.300, 0.850), 4)
+            logger.warning(f"CHAOS: Injected abnormal spike -> Temp: {abnormal_temp} °C | Vib: {abnormal_vib} g")
+            return abnormal_temp, abnormal_vib
+
         # Temperature random walk bounded between 65.0 and 85.0 Celsius
         delta_temp = random.uniform(-0.4, 0.4)
         self.current_temp = max(65.0, min(85.0, self.current_temp + delta_temp))
@@ -163,35 +208,61 @@ class SensorSimulator:
         self.client.loop_start()
 
         time.sleep(0.5)
-        logger.info(f"Starting telemetry transmission on topic '{self.topic}' (interval: {self.interval}s)")
+        logger.info(
+            f"Starting telemetry transmission on topic '{self.topic}' "
+            f"(interval: {self.interval}s, burst: {self.burst_size}, "
+            f"chaos_dup: {self.chaos_duplicates}, chaos_bad: {self.chaos_malformed}, chaos_abnormal: {self.chaos_abnormal})"
+        )
 
         msg_count = 0
         try:
             while True:
-                msg_count += 1
-                source_message_id = f"msg-{uuid.uuid4()}"
-                occurred_at = datetime.now(timezone.utc).isoformat()
-                temp, vib = self._simulate_next_values()
+                for b_idx in range(self.burst_size):
+                    msg_count += 1
+                    source_message_id = f"msg-{uuid.uuid4()}"
+                    occurred_at = datetime.now(timezone.utc).isoformat()
 
-                payload = {
-                    "sourceMessageId": source_message_id,
-                    "sensorId": self.sensor_id,
-                    "occurredAt": occurred_at,
-                    "measurements": {
-                        "temperature": temp,
-                        "vibration": vib,
-                    },
-                }
+                    # Chaos injection: malformed / poison pill payload
+                    if self.chaos_malformed > 0 and random.random() < self.chaos_malformed:
+                        payload = {
+                            "sourceMessageId": source_message_id,
+                            "sensorId": self.sensor_id,
+                            "occurredAt": occurred_at,
+                            # Malformed: missing measurements block or corrupted schema
+                            "invalidField": "POISON_PILL_CORRUPT_PAYLOAD",
+                        }
+                        logger.warning(
+                            f"[#{msg_count}] CHAOS: Injected malformed poison pill message -> MsgId: {source_message_id[:12]}..."
+                        )
+                    else:
+                        temp, vib = self._simulate_next_values()
+                        payload = {
+                            "sourceMessageId": source_message_id,
+                            "sensorId": self.sensor_id,
+                            "occurredAt": occurred_at,
+                            "measurements": {
+                                "temperature": temp,
+                                "vibration": vib,
+                            },
+                        }
 
-                payload_str = json.dumps(payload)
-                result = self.client.publish(self.topic, payload_str, qos=1)
+                    payload_str = json.dumps(payload)
+                    result = self.client.publish(self.topic, payload_str, qos=1)
 
-                if result.rc == mqtt.MQTT_ERR_SUCCESS:
-                    logger.info(
-                        f"[#{msg_count}] Published -> Temp: {temp:5.2f} °C | Vib: {vib:6.4f} g | MsgId: {source_message_id[:12]}..."
-                    )
-                else:
-                    logger.warning(f"[#{msg_count}] Publish failed with code {result.rc}")
+                    if result.rc == mqtt.MQTT_ERR_SUCCESS:
+                        if "measurements" in payload:
+                            temp_val = payload["measurements"]["temperature"]
+                            vib_val = payload["measurements"]["vibration"]
+                            logger.info(
+                                f"[#{msg_count}] Published -> Temp: {temp_val:5.2f} °C | Vib: {vib_val:6.4f} g | MsgId: {source_message_id[:12]}..."
+                            )
+                    else:
+                        logger.warning(f"[#{msg_count}] Publish failed with code {result.rc}")
+
+                    # Chaos injection: immediate duplicate delivery
+                    if self.chaos_duplicates > 0 and random.random() < self.chaos_duplicates:
+                        logger.warning(f"CHAOS: Injected duplicate message for MsgId: {source_message_id[:12]}...")
+                        self.client.publish(self.topic, payload_str, qos=1)
 
                 time.sleep(self.interval)
 
@@ -214,5 +285,9 @@ if __name__ == "__main__":
         port=args.port,
         sensor_id=args.sensor_id,
         interval=args.interval,
+        chaos_duplicates=args.chaos_duplicates,
+        chaos_malformed=args.chaos_malformed,
+        chaos_abnormal=args.chaos_abnormal,
+        burst_size=args.burst_size,
     )
     simulator.start()
