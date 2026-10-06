@@ -19,43 +19,58 @@ public class TelemetryService {
     private final TelemetryRepository telemetryRepository;
     private final MachineStateService machineStateService;
     private final MachineService machineService;
+    private final TelemetryMetrics telemetryMetrics;
 
     public TelemetryService(TelemetryRepository telemetryRepository, MachineStateService machineStateService,
-            MachineService machineService) {
+            MachineService machineService, TelemetryMetrics telemetryMetrics) {
         this.telemetryRepository = telemetryRepository;
         this.machineStateService = machineStateService;
         this.machineService = machineService;
+        this.telemetryMetrics = telemetryMetrics;
     }
 
     @Transactional
     public Telemetry recordTelemetry(RecordTelemetryCommand command) {
-        if (telemetryRepository.existsBySensorIdAndSourceMessageId(command.sensorId(), command.sourceMessageId())) {
-            log.info("Duplicate telemetry detected for sensorId={} and sourceMessageId={}. Skipping.",
-                    command.sensorId(), command.sourceMessageId());
-            return telemetryRepository.findBySensorIdAndSourceMessageId(command.sensorId(), command.sourceMessageId())
-                    .orElse(null);
-        }
-        if (telemetryRepository.existsByEventId(command.eventId())) {
-            log.info("Duplicate telemetry detected for eventId={}. Skipping.", command.eventId());
-            return telemetryRepository.findByEventId(command.eventId()).orElse(null);
-        }
 
-        Telemetry telemetry = new Telemetry(command.eventId(), command.sourceMessageId(), command.sensorId(),
-                command.machineId(), command.occurredAt(), command.receivedAt(), command.measurements());
+        return telemetryMetrics.recordProcessingTime(() -> {
 
-        Telemetry saved = telemetryRepository.save(telemetry);
+            if (telemetryRepository.existsBySensorIdAndSourceMessageId(command.sensorId(), command.sourceMessageId())) {
+                log.info("Duplicate telemetry detected for sensorId={} and sourceMessageId={}. Skipping.",
+                        command.sensorId(), command.sourceMessageId());
 
-        machineStateService.updateLatestState(new LatestStateUpdate(
-                command.machineId(),
-                saved.getTelemetryId(),
-                command.eventId(),
-                command.sourceMessageId(),
-                command.sensorId(),
-                command.occurredAt(),
-                command.receivedAt(),
-                command.measurements()));
+                telemetryMetrics.incrementDuplicateSensorMessage();
 
-        return saved;
+                return telemetryRepository
+                        .findBySensorIdAndSourceMessageId(command.sensorId(), command.sourceMessageId())
+                        .orElse(null);
+            }
+            if (telemetryRepository.existsByEventId(command.eventId())) {
+                log.info("Duplicate telemetry detected for eventId={}. Skipping.", command.eventId());
+
+                telemetryMetrics.incrementDuplicateEvent();
+
+                return telemetryRepository.findByEventId(command.eventId()).orElse(null);
+            }
+
+            Telemetry telemetry = new Telemetry(command.eventId(), command.sourceMessageId(), command.sensorId(),
+                    command.machineId(), command.occurredAt(), command.receivedAt(), command.measurements());
+
+            Telemetry saved = telemetryRepository.save(telemetry);
+
+            machineStateService.updateLatestState(new LatestStateUpdate(
+                    command.machineId(),
+                    saved.getTelemetryId(),
+                    command.eventId(),
+                    command.sourceMessageId(),
+                    command.sensorId(),
+                    command.occurredAt(),
+                    command.receivedAt(),
+                    command.measurements()));
+
+            telemetryMetrics.incrementIngested();
+
+            return saved;
+        });
     }
 
     @Transactional(readOnly = true)

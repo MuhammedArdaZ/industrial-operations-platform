@@ -138,5 +138,5 @@ curl -s http://localhost:8080/api/v1/machines/<MACHINE_ID>/latest-state | jq .
 - [ ] **Phase 3 — Production Readiness:**
   - [x] Full application containerization & Docker Compose orchestration (`backend/Dockerfile`, dual Kafka listeners)
   - [x] GitHub Actions CI pipeline with Testcontainers verification (`.github/workflows/ci.yml`)
-  - [ ] Prometheus metrics endpoint & Actuator health checks
+  - [x] Prometheus metrics endpoint & Actuator health checks (`TelemetryMetrics`, Micrometer, `/actuator/prometheus`)
   - [ ] Grafana dashboards for telemetry pipeline observability
