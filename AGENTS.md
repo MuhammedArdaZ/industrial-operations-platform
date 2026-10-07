@@ -17,35 +17,44 @@ Build a realistically finishable, event-driven backend for industrial equipment 
 
 ## Target stack
 
-- Java and Spring Boot
-- PostgreSQL for durable application data
-- MQTT for device telemetry ingress
-- Apache Kafka for internal event transport
-- Redis for later latest-state caching and distributed-locking experiments
-- Docker Compose for local infrastructure
-- JUnit 5 and Testcontainers for testing
+- Java 25 and Spring Boot 3.5
+- PostgreSQL 16+ for durable application data and Flyway versioned migrations
+- Eclipse Mosquitto for MQTT device telemetry ingress
+- Apache Kafka 3.7+ (KRaft) for internal event transport
+- Docker Compose for local infrastructure orchestration
+- JUnit 5 and Testcontainers for automated testing
 - GitHub Actions for CI
 - Prometheus and Grafana for Phase 3 observability
+- *(Redis was evaluated in Phase 2 and deliberately deferred in favor of SQL-level optimistic locking)*
+
+## Current Status & Architectural Evolution
+
+Phases 1, 2, and 3 are **completed**:
+- **DLT & Controlled Replay:** Implemented and verified via `telemetry-events-dlt`, `FixedBackOff`, `DeadLetterPublishingRecoverer`, and `TelemetryDltReplayService` (ADR-006, ADR-007).
+- **Idempotency & Concurrency:** Delivered via Flyway V2 composite constraints `(sensor_id, source_message_id)` and Flyway V3 JPA `@Version` optimistic locking (ADR-005, ADR-008).
+- **Redis Deferred (Design Decision):** Redis caching and distributed locking were evaluated during Phase 2. PostgreSQL optimistic locking (`@Version`) cleanly eliminated lost updates on the projection table without the operational overhead, cache invalidation races, and split-brain risks of introducing a Redis cluster.
+- **Alerts & Maintenance Workflows:** Retained as candidate Phase 4 business scenarios. The distributed systems resilience experiments were validated directly on the core telemetry pipeline.
+- **Observability Stack:** Fully delivered via Spring Boot Actuator, custom Micrometer metrics (`telemetry_ingested_total`, `telemetry_duplicates_total`, `telemetry_processing_duration_seconds`), Prometheus pull scraping (:9090), and pre-provisioned Grafana dashboards (:3000) (ADR-009).
+- **Verification:** Automated JUnit 5 unit and Testcontainers-backed integration test suite executing on every commit in GitHub Actions CI.
 
 ## Architecture rules
 
-- Phase 1 is a modular monolith, not a collection of services.
-- Keep domain modules cohesive: machines, sensors, telemetry, machine state, alerts, and maintenance/work orders. Alerts and maintenance/work orders are planned modules, but are not implemented in Phase 1.
-- In Phase 1, telemetry follows: sensor simulator -> MQTT broker -> Spring Boot MQTT ingestion -> Kafka producer -> Kafka telemetry topic -> Kafka consumer -> PostgreSQL -> REST API.
+- The platform is a modular monolith, not a collection of microservices.
+- Keep domain modules cohesive: machines, sensors, telemetry, machine state, alerts, and maintenance/work orders. Alerts and maintenance/work orders are candidate Phase 4 expansions.
+- Ingestion telemetry follows: sensor simulator -> MQTT broker -> Spring Boot MQTT ingestion -> Kafka producer -> Kafka telemetry topic -> Kafka consumer -> PostgreSQL -> REST API.
 - Kafka is the asynchronous boundary between ingestion and persistence; do not bypass it for normal telemetry processing.
 - Treat telemetry events as immutable facts. Maintain latest machine state separately as a query-optimized projection.
 - Make source-message identity, internal-event identity, source/platform timestamps, schema/version expectations, and error handling explicit before implementing producers or consumers.
 - Validate telemetry sensor identity against platform-owned sensor configuration. Resolve the machine from that relationship; never copy an untrusted producer-supplied machine ID into an internal event.
-- The Phase 1 consumer boundary is: validate message -> begin database transaction -> persist immutable telemetry -> update latest-state projection -> commit database transaction -> acknowledge Kafka message. Telemetry persistence and state projection are one database consistency boundary.
-- This Phase 1 ordering is at-least-once processing, not end-to-end exactly-once processing. Idempotency and failure semantics are major Phase 2 work.
-- Do not add Redis, DLQs, replay facilities, distributed locks, or advanced retry behavior until their Phase 2 problem statements and experiments are documented.
+- The consumer boundary is: validate message -> check composite natural key deduplication -> begin database transaction -> persist immutable telemetry -> update latest-state projection -> commit database transaction -> acknowledge Kafka message. Telemetry persistence and state projection are one database consistency boundary.
+- At-least-once delivery is paired with application and database-level idempotency (Flyway V2) and optimistic concurrency control (Flyway V3, ADR-008). Poison pills are quarantined to `telemetry-events-dlt` (ADR-006).
 
 ## Development phases
 
-1. **Working Event-Driven Core**: a sensor simulator and machine/sensor management, PostgreSQL persistence, REST API, MQTT ingestion, Kafka producer/consumer, telemetry persistence, and latest-state querying. Alerts and maintenance/work orders are excluded.
-2. **Distributed Systems Depth**: demonstrable work on idempotency, consumer groups, partitioning, retry/DLQ/replay, transactions, concurrency, Redis cache/locks, backpressure, and failures, with alerts and maintenance/work orders introduced as useful business scenarios.
-3. **Production Readiness**: Docker Compose, expanded Testcontainers integration coverage, CI, health checks, Prometheus, Grafana, and basic metrics.
-4. **Optional**: Kubernetes, OpenTelemetry/tracing, Toxiproxy, load/chaos testing, and basic anomaly detection only if time remains and there is a clear benefit.
+1. **Working Event-Driven Core [COMPLETED]**: a sensor simulator and machine/sensor management, PostgreSQL persistence, REST API, MQTT ingestion, Kafka producer/consumer, telemetry persistence, and latest-state querying.
+2. **Distributed Systems Depth [COMPLETED]**: demonstrable work on idempotency (`(sensor_id, source_message_id)`, Flyway V2, ADR-005), partition ordering key (`machineId`, ADR-004), poison pill quarantine & DLT (`telemetry-events-dlt`, `FixedBackOff`, ADR-006), controlled replay (`TelemetryDltReplayService`, ADR-007), and optimistic concurrency locking (`@Version`, Flyway V3, ADR-008). Failure experiments recorded in `docs/failure-scenarios.md`. *(Redis caching/locks and alert/maintenance business modules were evaluated and deferred to Phase 4 in favor of SQL-level optimistic locking).*
+3. **Production Readiness [COMPLETED]**: Docker Compose (all 6 services), expanded Testcontainers automated test suite, GitHub Actions CI, Actuator health checks, Prometheus metrics endpoint (`TelemetryMetrics`), and Grafana dashboard (ADR-009).
+4. **Optional (Future Extensions)**: Business alert rules & maintenance/work orders, Live Factory Floor Web UI (WebSocket / SSE), OpenAPI/Swagger interactive UI (`springdoc-openapi`), Kubernetes, OpenTelemetry/tracing, Toxiproxy, and anomaly detection.
 
 ## Coding expectations
 

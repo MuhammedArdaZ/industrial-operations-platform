@@ -39,23 +39,36 @@ The initial release is a single modular Spring Boot application. It is intended 
 8. The system shall retain sufficient event metadata to trace a persisted telemetry record back to its source message.
 9. Phase 1 shall not implement alerts or maintenance/work-order workflows.
 
-### Future functional capabilities
+### Delivered Capabilities (Phases 1–3)
 
-- Alerts derived from defined operational conditions, introduced in Phase 2 as business scenarios for distributed-systems experiments.
-- Maintenance/work orders associated with machines and alerts, introduced in Phase 2 as business scenarios for distributed-systems experiments.
-- Controlled replay and failure recovery for telemetry processing.
-- Sensor-simulator scenarios for abnormal values, duplicate messages, burst traffic, and increased message rates for load testing.
+1. **Machine & Sensor Registry:** REST API endpoints to register and retrieve machines and their associated sensors.
+2. **Telemetry Ingestion & Resolution:** Ingests MQTT telemetry, resolves authoritative machine identity from platform-owned sensor configuration, and creates an immutable Kafka event envelope.
+3. **Decoupled Asynchronous Processing:** Kafka telemetry topic with partition key by `machineId` guarantees in-order message delivery per machine.
+4. **Idempotency & Deduplication:** Pre-insert check and composite natural key constraint `(sensor_id, source_message_id)` on `telemetry` table prevents duplicate insertions from network/broker re-deliveries (ADR-005).
+5. **Optimistic Locking & State Projection:** Machine latest-state projection updated atomically with telemetry persistence; JPA `@Version` concurrency control prevents lost updates under race conditions (ADR-008).
+6. **Dead Letter Topic & Error Handling:** `telemetry-events-dlt` quarantines malformed poison pill messages via `FixedBackOff(1000L, 2L)` without stalling partition consumption (ADR-006).
+7. **Controlled Replay:** Operator-initiated batch replay service (`TelemetryDltReplayService`) safely re-injects quarantined messages while preventing infinite replay loops (ADR-007).
+8. **Chaos Sensor Simulator:** Python simulator supporting realistic streams and injection of duplicate deliveries, corrupted payloads, abnormal spikes, and bursts.
+9. **Observability & Dashboards:** Prometheus endpoint (`/actuator/prometheus`), custom domain counters and percentile timers (`TelemetryMetrics`), Prometheus container (:9090), and pre-configured Grafana telemetry dashboard (:3000) (ADR-009).
+10. **Containerization & CI:** Docker Compose orchestrating all 6 platform components; automated GitHub Actions CI verifying the complete test suite on every commit.
+
+### Future functional capabilities (Phase 4 / Extensions)
+
+- Business alert rules derived from operational telemetry conditions (e.g. temperature > 90°C).
+- Maintenance work orders associated with machines and trigger alerts.
+- Live Factory Floor Web UI (WebSocket / Server-Sent Events).
+- OpenAPI / Swagger interactive documentation (`springdoc-openapi`).
 
 ## Non-functional requirements
 
-- **Maintainability:** clear modular boundaries, conventional Spring Boot design, concise documentation, and minimal dependencies.
-- **Correctness:** validation at system boundaries; explicit event contracts; UTC/offset-aware event times; tested persistence and state-projection behavior.
-- **Reliability:** Phase 1 uses at-least-once processing. A database transaction makes telemetry persistence and latest-state projection consistent with each other, but does not provide end-to-end exactly-once processing. Phase 2 will establish idempotency, retry, DLQ, replay, and failure handling behavior through tests/experiments.
-- **Observability:** structured logs from Phase 1; health checks and Prometheus-compatible application metrics in Phase 3.
-- **Testability:** unit tests are required for domain/application behavior. Phase 1 includes a small Testcontainers-backed integration baseline that verifies the critical PostgreSQL, Kafka, and MQTT telemetry path; Phase 3 expands this coverage and runs it in CI.
-- **Security:** configuration is environment-driven; no secrets are committed; external input is validated; authentication/authorization scope will be explicitly defined before exposure beyond local development.
-- **Operational usability:** local environment will be reproducible with Docker Compose in Phase 3 and CI will run relevant automated checks.
-- **Performance:** no premature performance target is assumed. Baselines and bottlenecks will be measured before optimization; backpressure is a Phase 2 concern.
+- **Maintainability:** Clear modular monolith boundaries (`machine`, `sensor`, `ingestion`, `telemetry`, `state`, `common`), minimal dependencies, and Flyway versioned migrations (`V1`, `V2`, `V3`).
+- **Correctness:** Strict boundary validation (`TelemetryEventValidator`, `MqttTelemetryPayload`); UTC/offset-aware event times; tested persistence and state-projection ordering.
+- **Reliability:** At-least-once transport combined with idempotent persistence (Flyway V2) and optimistic locking (Flyway V3, ADR-008) guarantees consistency. Poison pills are safely quarantined to DLT (ADR-006).
+- **Observability:** Structured logs; Actuator `/actuator/health` and `/actuator/prometheus`; Micrometer domain metrics (ingestion count, duplicate count by reason, latency percentiles); Grafana visualization (:3000) (ADR-009).
+- **Testability:** Comprehensive automated test suite (JUnit 5 unit tests and Testcontainers-backed integration tests running against ephemeral PostgreSQL and Kafka containers), executed automatically on GitHub Actions CI.
+- **Security:** Environment-driven configuration; no hardcoded secrets; validated input boundaries.
+- **Operational usability:** Single-command local environment via `docker compose up -d` bringing up all services and observability tools out-of-the-box.
+- **Performance:** Non-blocking in-memory metric recording; Kafka partitioning by machine; optimistic concurrency control avoiding pessimistic row locks.
 
 ## Assumptions to validate during implementation
 

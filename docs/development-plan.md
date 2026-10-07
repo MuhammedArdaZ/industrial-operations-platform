@@ -4,7 +4,7 @@
 
 Build a small, working vertical slice first and deepen reliability only after the core flow is observable and testable. Keep all work within a modular monolith unless a documented reason demonstrates that extraction is worthwhile.
 
-## Phase 1 — Working Event-Driven Core
+## Phase 1 — Working Event-Driven Core [COMPLETED]
 
 **Objective:** implement the end-to-end telemetry path only; alerts and maintenance/work-order workflows are explicitly excluded:
 
@@ -12,68 +12,60 @@ Build a small, working vertical slice first and deepen reliability only after th
 Sensor Simulator -> MQTT Broker -> Spring Boot MQTT Ingestion -> Kafka Producer -> Kafka Telemetry Topic -> Kafka Consumer -> PostgreSQL -> REST API
 ```
 
-**Scope:**
+**Scope & Delivery Summary:**
 
-- Define the machine and sensor domain model.
-- Implement a small sensor simulator, expected to use Python, that publishes normal telemetry for multiple configurable machines and sensors to MQTT.
-- Add PostgreSQL persistence and schema migrations.
-- Expose Spring Boot REST endpoints for machines, sensors, telemetry history, and latest state.
-- Define and validate the documented MQTT topic/payload contract and conceptual internal Kafka event envelope, including `sourceMessageId`, `eventId`, `occurredAt`, `receivedAt`, and platform-resolved machine identity.
-- Ingest MQTT telemetry and publish accepted events to Kafka.
-- Consume Kafka telemetry using the documented boundary: validate -> begin database transaction -> persist immutable telemetry -> update latest-state projection -> commit -> acknowledge Kafka.
-- Maintain and query the machine latest-state projection as part of the same database transaction as telemetry persistence.
-- Add focused JUnit 5 unit tests with each implemented behavior.
-- Add the narrow Testcontainers-backed integration baseline: PostgreSQL migrations/persistence plus one MQTT -> Kafka -> PostgreSQL telemetry-path test.
+- [x] Defined machine and sensor domain model.
+- [x] Implemented Python sensor simulator publishing telemetry for configurable machines and sensors to MQTT (`simulator/sensor_simulator.py`).
+- [x] Added PostgreSQL persistence with Flyway `V1__init_schema.sql`.
+- [x] Exposed Spring Boot REST endpoints for machines, sensors, telemetry history, and latest state (`/api/v1/...`).
+- [x] Validated MQTT topic/payload contract and Kafka internal event envelope with `machineId` partition key (ADR-001, ADR-002, ADR-004).
+- [x] Ingested MQTT telemetry and published validated events to Kafka.
+- [x] Consumed Kafka telemetry within a single transactional boundary: validate -> persist immutable telemetry -> update latest-state projection -> commit DB -> acknowledge Kafka (ADR-003).
+- [x] Added focused JUnit 5 unit and Testcontainers integration tests verifying the baseline.
 
-**Exit criteria:** a locally reproducible vertical slice proves that normal simulator telemetry reaches PostgreSQL through MQTT and Kafka and is returned by the REST API as history and latest state. Unit tests and the narrow critical-boundary integration baseline pass. The result documents at-least-once processing only; it makes no end-to-end exactly-once claim.
+**Exit criteria:** **MET.** Locally reproducible vertical slice operating at-least-once across MQTT, Kafka, and PostgreSQL.
 
-## Phase 2 — Distributed Systems Depth
+## Phase 2 — Distributed Systems Depth [COMPLETED]
 
-**Objective:** turn explicit delivery and failure risks into demonstrated engineering work.
+**Objective:** turn explicit delivery and failure risks into demonstrated engineering work. Recorded in detail in `docs/failure-scenarios.md` and ADR-004 through ADR-008.
 
-For every item, create a concise record containing: **problem -> solution -> test/experiment -> result**. Do not add mechanisms solely for a checklist.
+**Scope & Delivery Summary:**
 
-**Scope:**
+- [x] **Idempotency & deduplication:** Enforced natural composite key `(sensor_id, source_message_id)` and unique `event_id` in Flyway V2 (ADR-005).
+- [x] **Kafka partition-key strategy:** Partitioned by authoritative `machineId` ensuring FIFO per machine (ADR-004).
+- [x] **Dead Letter Topic (DLT):** Configured `telemetry-events-dlt` with `FixedBackOff` to quarantine poison pills without blocking partition consumption (ADR-006).
+- [x] **Controlled replay:** Built `TelemetryDltReplayService` with ping-pong loop prevention (ADR-007).
+- [x] **Concurrency & optimistic locking:** Enforced JPA `@Version` on `MachineLatestState` via Flyway V3, preventing lost updates (ADR-008). Redis locking evaluated and superseded by SQL-level optimistic locking.
+- [x] **Failure matrix experiments:** Consumer downtime buffering, out-of-order logical clock checks, poison pill quarantine, and concurrent race collisions tested and documented.
+- [x] **Simulator chaos controls:** Extended simulator with `--chaos-duplicates`, `--chaos-malformed`, `--chaos-abnormal`, and `--burst-size`.
 
-- Idempotency for duplicate telemetry delivery.
-- Kafka consumer groups and partition-key strategy.
-- Retry policy and Dead Letter Queue behavior.
-- Controlled replay of failed or historical events.
-- Clear transaction boundaries and delivery/commit behavior.
-- Concurrency behavior, including optimistic locking where a real conflict exists.
-- Redis latest-state cache only when it improves a measured or clear query need.
-- Redis distributed locking only for a concrete multi-process coordination problem.
-- Backpressure behavior and bounded-resource handling.
-- Failure scenarios: broker/database outages, malformed events, duplicates, out-of-order messages, consumer restart, and poison messages.
-- Introduce alerts and maintenance/work orders as business scenarios that exercise delivery, consistency, concurrency, and recovery behavior; do not expand them beyond what those experiments require.
-- Extend the sensor simulator with abnormal values, duplicates, burst traffic, and configurable higher message rates for failure and backpressure experiments.
+**Exit criteria:** **MET.** Every distributed failure mode is verified by integration tests and recorded in `docs/failure-scenarios.md`.
 
-**Exit criteria:** each adopted distributed-systems capability has a reproducible test or experiment and a documented result, including remaining limitations.
-
-## Phase 3 — Production Readiness
+## Phase 3 — Production Readiness [COMPLETED]
 
 **Objective:** make the modular monolith practical to run, validate, and observe.
 
-**Scope:**
+**Scope & Delivery Summary:**
 
-- Docker Compose for local application dependencies.
-- Expand Testcontainers-backed integration coverage and run the agreed suite in CI.
-- GitHub Actions CI for build, tests, and appropriate quality checks.
-- Application health checks.
-- Prometheus metrics endpoint and basic application metrics.
-- Grafana dashboards for essential flow and operational signals.
+- [x] **Docker Compose orchestration:** Complete stack running PostgreSQL, Mosquitto, Kafka KRaft, Spring Boot backend, Prometheus, and Grafana (`docker-compose.yml`).
+- [x] **Expanded Testcontainers suite:** Full automated test suite (unit and integration tests) passing (`./mvnw clean verify`).
+- [x] **GitHub Actions CI:** Automated pipeline building the JAR and running all Testcontainers tests on pull requests (`.github/workflows/ci.yml`).
+- [x] **Application health checks:** Spring Boot Actuator `/actuator/health` reporting live subsystem status.
+- [x] **Prometheus metrics:** Domain counters (`telemetry_ingested_total`, `telemetry_duplicates_total` with `reason` tag) and percentile timers (`telemetry_processing_duration_seconds`) at `/actuator/prometheus` (ADR-009).
+- [x] **Grafana dashboards:** Pre-provisioned dashboards on port `3000` monitoring live ingestion, duplicates, latencies, and JVM memory.
 
-**Exit criteria:** a new developer can bring up local dependencies, run automated tests, and inspect basic health and telemetry-pipeline metrics; CI verifies the agreed checks on changes.
+**Exit criteria:** **MET.** `docker compose up -d` boots the entire stack; `./mvnw clean verify` validates the complete test suite; Prometheus and Grafana provide instant visual observability.
 
 ## Phase 4 — Optional, time permitting
 
 Only select an item when it supports a clear learning or operational objective and does not jeopardize completion of Phases 1–3.
 
+- Business domain extensions: alerts and maintenance/work orders.
+- Live Factory Floor Web UI (WebSocket / SSE).
+- OpenAPI / Swagger interactive documentation (`springdoc-openapi`).
 - Kubernetes.
 - OpenTelemetry and distributed tracing.
-- Toxiproxy.
-- Load testing.
-- Chaos/failure testing.
+- Toxiproxy and network partition chaos testing.
 - Basic anomaly detection.
 
 ## Suggested sequencing and checkpoints

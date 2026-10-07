@@ -1,6 +1,6 @@
-# Distributed Systems Failure Scenarios & Rebalancing Matrix
+# Distributed Systems Failure Scenarios & Recovery Matrix
 
-This document records the empirical results of our distributed systems failure, resilience, and rebalancing experiments as specified in Phase 2 of `docs/development-plan.md`.
+This document records the empirical results of our distributed systems failure, resilience, and recovery experiments as specified in Phase 2 of `docs/development-plan.md`.
 
 ---
 
