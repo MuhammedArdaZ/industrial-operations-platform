@@ -135,8 +135,9 @@ curl -s http://localhost:8080/api/v1/machines/<MACHINE_ID>/latest-state | jq .
   - [x] Dead Letter Topic & Poison Pill resilience (`telemetry-events-dlt`, `FixedBackOff`, ADR-006)
   - [x] Controlled replay of failed DLT events (`TelemetryDltReplayService`, ADR-007)
   - [x] Concurrency & optimistic locking (`@Version` on `MachineLatestState`, Flyway V3, ADR-008)
-- [ ] **Phase 3 — Production Readiness:**
+- [x] **Phase 3 — Production Readiness:**
   - [x] Full application containerization & Docker Compose orchestration (`backend/Dockerfile`, dual Kafka listeners)
   - [x] GitHub Actions CI pipeline with Testcontainers verification (`.github/workflows/ci.yml`)
   - [x] Prometheus metrics endpoint & Actuator health checks (`TelemetryMetrics`, Micrometer, `/actuator/prometheus`)
-  - [ ] Grafana dashboards for telemetry pipeline observability
+  - [x] Grafana dashboards for telemetry pipeline observability (`industrial-telemetry-dashboard.json`, Prometheus `:9090`, Grafana `:3000`)
+
