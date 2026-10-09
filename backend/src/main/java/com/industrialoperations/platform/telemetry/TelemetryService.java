@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.industrialoperations.platform.alert.AlertService;
 import com.industrialoperations.platform.machine.MachineService;
 import com.industrialoperations.platform.state.LatestStateUpdate;
 import com.industrialoperations.platform.state.MachineStateService;
@@ -20,13 +21,15 @@ public class TelemetryService {
     private final MachineStateService machineStateService;
     private final MachineService machineService;
     private final TelemetryMetrics telemetryMetrics;
+    private final AlertService alertService;
 
     public TelemetryService(TelemetryRepository telemetryRepository, MachineStateService machineStateService,
-            MachineService machineService, TelemetryMetrics telemetryMetrics) {
+            MachineService machineService, TelemetryMetrics telemetryMetrics, AlertService alertService) {
         this.telemetryRepository = telemetryRepository;
         this.machineStateService = machineStateService;
         this.machineService = machineService;
         this.telemetryMetrics = telemetryMetrics;
+        this.alertService = alertService;
     }
 
     @Transactional
@@ -66,6 +69,13 @@ public class TelemetryService {
                     command.occurredAt(),
                     command.receivedAt(),
                     command.measurements()));
+
+            alertService.evaluateTelemetry(
+                    command.machineId(),
+                    command.sensorId(),
+                    command.occurredAt(),
+                    command.measurements().temperature(),
+                    command.measurements().vibration());
 
             telemetryMetrics.incrementIngested();
 

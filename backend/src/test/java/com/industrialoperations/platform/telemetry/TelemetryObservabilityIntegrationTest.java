@@ -10,7 +10,6 @@ import com.industrialoperations.platform.AbstractIntegrationTest;
 import com.industrialoperations.platform.machine.Machine;
 import com.industrialoperations.platform.machine.MachineRepository;
 import com.industrialoperations.platform.sensor.SensorRepository;
-import com.industrialoperations.platform.machine.Machine;
 import com.industrialoperations.platform.sensor.Sensor;
 import com.industrialoperations.platform.common.Measurements;
 
