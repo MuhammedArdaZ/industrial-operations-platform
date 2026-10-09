@@ -91,7 +91,7 @@ public class AlertIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("Should trigger ACTIVE alert when temperature reaches or exceeds 90.0°C threshold")
     void shouldTriggerActiveAlertWhenTemperatureExceedsThreshold() {
-        Instant now = Instant.now();
+        Instant now = Instant.parse("2026-10-09T10:00:00Z");
         BigDecimal highTemp = new BigDecimal("92.5");
         BigDecimal normalVib = new BigDecimal("0.20");
 
