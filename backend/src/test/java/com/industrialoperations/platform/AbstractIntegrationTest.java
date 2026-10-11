@@ -28,5 +28,6 @@ public abstract class AbstractIntegrationTest {
         // configure their own containers and enable these settings explicitly.
         registry.add("platform.mqtt.enabled", () -> false);
         registry.add("spring.kafka.listener.auto-startup", () -> false);
+        registry.add("spring.kafka.admin.auto-create", () -> false);
     }
 }

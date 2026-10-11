@@ -49,6 +49,9 @@ public class AlertIntegrationTest extends AbstractIntegrationTest {
     private AlertRepository alertRepository;
 
     @Autowired
+    private AlertService alertService;
+
+    @Autowired
     private MachineRepository machineRepository;
 
     @Autowired
@@ -218,5 +221,60 @@ public class AlertIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].machineId").value(testMachine.getId().toString()))
                 .andExpect(jsonPath("$[1].machineId").value(testMachine.getId().toString()));
+    }
+
+    @Test
+    @DisplayName("Should not spawn duplicate alert when breach continues on an ACKNOWLEDGED alert")
+    void shouldNotCreateDuplicateAlertIfAlreadyAcknowledgedAndBreachContinues() {
+        Instant t1 = Instant.parse("2026-10-09T10:00:00Z");
+        telemetryService.recordTelemetry(createCommand(new BigDecimal("93.0"), new BigDecimal("0.10"), t1));
+
+        List<Alert> alerts = alertRepository.findByMachineIdOrderByTriggeredAtDesc(testMachine.getId());
+        assertThat(alerts).hasSize(1);
+        Alert alert = alerts.getFirst();
+        assertThat(alert.getStatus()).isEqualTo(AlertStatus.ACTIVE);
+
+        // Operatör alarmı onaylar (ACKNOWLEDGE)
+        alertService.acknowledgeAlert(alert.getId());
+        Alert acknowledged = alertRepository.findById(alert.getId()).orElseThrow();
+        assertThat(acknowledged.getStatus()).isEqualTo(AlertStatus.ACKNOWLEDGED);
+
+        // İhlal devam ediyor: 96.0°C yeni telemetri
+        Instant t2 = t1.plusSeconds(5);
+        telemetryService.recordTelemetry(createCommand(new BigDecimal("96.0"), new BigDecimal("0.10"), t2));
+
+        // Yeni alarm açılmamalı, toplam alarm sayısı hala 1 olmalı ve değeri güncellenmeli
+        List<Alert> alertsAfter = alertRepository.findByMachineIdOrderByTriggeredAtDesc(testMachine.getId());
+        assertThat(alertsAfter).hasSize(1);
+        Alert updated = alertsAfter.getFirst();
+        assertThat(updated.getId()).isEqualTo(alert.getId());
+        assertThat(updated.getStatus()).isEqualTo(AlertStatus.ACKNOWLEDGED);
+        assertThat(updated.getCurrentValue()).isEqualByComparingTo(new BigDecimal("96.0"));
+    }
+
+    @Test
+    @DisplayName("Should ignore out-of-order telemetry for alert evaluation (Experiment 4 integration)")
+    void shouldIgnoreOutOfOrderTelemetryForAlertEvaluation() {
+        Instant t2_newer = Instant.parse("2026-10-09T14:00:00Z");
+        Instant t1_older = Instant.parse("2026-10-09T13:00:00Z");
+
+        // 1. Güncel normal telemetri (75°C) -> Alarm üretilmez
+        telemetryService.recordTelemetry(createCommand(new BigDecimal("75.0"), new BigDecimal("0.10"), t2_newer));
+        assertThat(alertRepository.findByMachineIdOrderByTriggeredAtDesc(testMachine.getId())).isEmpty();
+
+        // 2. Gecikmeli gelen eski telemetri (95°C, 1 saat önce) -> Projeksiyon güncellenmez ve ALARM AÇILMAMALI!
+        telemetryService.recordTelemetry(createCommand(new BigDecimal("95.0"), new BigDecimal("0.10"), t1_older));
+        assertThat(alertRepository.findByMachineIdOrderByTriggeredAtDesc(testMachine.getId())).isEmpty();
+
+        // 3. Güncel bir yüksek sıcaklık (95°C, 14:05) -> Aktif alarm oluşmalı
+        Instant t3_newer = Instant.parse("2026-10-09T14:05:00Z");
+        telemetryService.recordTelemetry(createCommand(new BigDecimal("95.0"), new BigDecimal("0.10"), t3_newer));
+        assertThat(alertRepository.findByStatusOrderByTriggeredAtDesc(AlertStatus.ACTIVE)).hasSize(1);
+
+        // 4. Gecikmeli gelen eski normal telemetri (70°C, 13:30) -> Aktif alarmı AUTO-CLEAR YAPMAMALI!
+        Instant t1_delayed_clear = Instant.parse("2026-10-09T13:30:00Z");
+        telemetryService.recordTelemetry(createCommand(new BigDecimal("70.0"), new BigDecimal("0.10"), t1_delayed_clear));
+        assertThat(alertRepository.findByStatusOrderByTriggeredAtDesc(AlertStatus.ACTIVE)).hasSize(1);
+        assertThat(alertRepository.findByStatusOrderByTriggeredAtDesc(AlertStatus.RESOLVED)).isEmpty();
     }
 }

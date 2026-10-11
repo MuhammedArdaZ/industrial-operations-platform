@@ -11,13 +11,14 @@ No microservices are planned. A service is extracted only when concrete evidence
 | Component | Responsibility | Role in Platform |
 | --- | --- | --- |
 | Sensor simulator | Development/test telemetry source | Python program publishing normal and chaos telemetry (duplicates, abnormal spikes, bursts) to MQTT |
-| REST API | Management and query interface | Machines, sensors, telemetry history, latest state |
+| REST API | Management and query interface | Machines, sensors, telemetry history, latest state, and operational alerts |
 | MQTT ingestion adapter | External device boundary | Subscribes to telemetry, validates contract, resolves sensor-to-machine mapping, forwards accepted events |
 | Kafka producer | Event handoff | Publishes validated telemetry envelopes partitioned by `machineId` to `telemetry-events` |
-| Kafka consumer | Asynchronous processing | Consumes telemetry, evaluates deduplication, persists history, and updates latest-state projection |
+| Kafka consumer | Asynchronous processing | Consumes telemetry, evaluates deduplication, persists history, updates latest-state projection, and evaluates threshold alerts |
+| Alert Engine | Anomaly detection & lifecycle | Detects threshold breaches, deduplicates active alerts (anti-spam), auto-clears via hysteresis, and manages alert lifecycle (ADR-010) |
 | Dead Letter Topic & Replay | Failure quarantine & recovery | Quarantines poison pills in `telemetry-events-dlt` and supports controlled operator replay via `TelemetryDltReplayService` (ADR-006, ADR-007) |
-| Application/domain modules | Business rules and use cases | Machine, sensor, telemetry, latest state, and metrics instrumentation |
-| PostgreSQL | Durable system of record | Machine/sensor data, immutable deduplicated telemetry history, optimistic-locked latest-state projection |
+| Application/domain modules | Business rules and use cases | Machine, sensor, telemetry, latest state, alerts, and metrics instrumentation |
+| PostgreSQL | Durable system of record | Machine/sensor data, immutable deduplicated telemetry history, optimistic-locked state projection, and stateful alerts |
 | Prometheus & Grafana | Real-time observability | Scrapes `/actuator/prometheus` (:9090) and displays live throughput, duplicates, percentiles, and JVM metrics (:3000) (ADR-009) |
 
 ## Telemetry Event Flow & Infrastructure
@@ -37,7 +38,7 @@ No microservices are planned. A service is extracted only when concrete evidence
 │ (System of Record)│                   └──────────────┬──────────────┘
 └─────────┬─────────┘                                  │ Poison Pill / Fatal Error
           │                                            ▼
-          │ Read Latest State                   ┌─────────────────────────────┐
+          │ Read State & Alerts                 ┌─────────────────────────────┐
           ▼                                     │  Dead Letter Topic (-dlt)   │
 ┌───────────────────┐                           └──────────────┬──────────────┘
 │ REST API (/api/v1)│                                          │ Controlled Replay
@@ -122,7 +123,8 @@ The ingestion adapter validates topic format, payload shape, required fields, ti
 - **Sensor** belongs to a machine and identifies the origin of telemetry. A sensor is a multi-measurement unit: one observation carries the full measurement set the unit reports, so `sensors.type` describes the kind of unit rather than a single measured quantity. When a unit that also reports pressure is introduced, it reports pressure alongside the existing measurements under a new `schemaVersion`.
 - **Telemetry** is an immutable observation associated with a sensor and authoritative machine. It retains `sourceMessageId`, `eventId`, `occurredAt`, and `receivedAt` for traceability and idempotency deduplication (ADR-005).
 - **Machine latest state** is a separate, query-oriented projection derived from valid persisted telemetry. It is not the source of historical truth. Its ordering rule is strict: an observation replaces the stored state only when its `occurredAt` is strictly after the stored `occurredAt`. An older observation is ignored, and an observation with an identical `occurredAt` leaves the existing state in place, so the first arrival wins a tie. Concurrency race conditions are guarded by JPA `@Version` optimistic locking (ADR-008).
-- **Alert** and **maintenance/work order** are reserved domain modules for future business scenarios.
+- **Alert** is a domain module (`com.industrialoperations.platform.alert`) providing operational anomaly detection, anti-spam deduplication, and hysteresis auto-clearing (ADR-010).
+- **Maintenance/work order** is a reserved domain module for future business workflow expansion.
 
 ## Consumer transaction boundary and delivery model
 
@@ -135,12 +137,13 @@ Kafka message
   -> database transaction begins
        -> persist immutable telemetry (Flyway V2 unique constraints prevent duplicate insert)
        -> update machine latest-state projection (ordered by occurredAt, guarded by @Version)
+       -> evaluate alerting rules (threshold checks, anti-spam deduplication, hysteresis auto-clearing)
   -> database transaction commits
   -> Kafka message is acknowledged (at-least-once delivery satisfied)
   -> publish Micrometer domain metrics (telemetry_ingested_total / telemetry_duplicates_total)
 ```
 
-Immutable telemetry persistence and latest-state projection share a single database consistency boundary: either both changes commit or neither does. A Kafka acknowledgment is sent only after the database transaction commits.
+Immutable telemetry persistence, latest-state projection, and alert evaluation share a single database consistency boundary: either all changes commit or none do. A Kafka acknowledgment is sent only after the database transaction commits.
 
 Because network retries, QoS 1 delivery, or consumer rebalancing can re-deliver messages, at-least-once delivery is paired with application and database-level idempotency (Flyway V2 composite unique key on `sensor_id, source_message_id` and unique `event_id`). Stale concurrent writes are rejected via JPA `@Version` optimistic locking (Flyway V3, ADR-008). Poison pill messages bypass infinite retry loops and are routed directly to `telemetry-events-dlt` (ADR-006).
 
@@ -159,7 +162,7 @@ Domain modules (machine, sensor, telemetry, state, alert, maintenance)
 Persistence and messaging ports/adapters
 ```
 
-Domain rules must not depend directly on HTTP, MQTT, Kafka, JPA, Redis, or Docker details. Boundary adapters validate/translate external representations; application use cases coordinate transactions and ports. Infrastructure implementations provide database and messaging access. Alert and maintenance/work-order modules may be present as future boundaries but contain no Phase 1 behavior.
+Domain rules must not depend directly on HTTP, MQTT, Kafka, JPA, Redis, or Docker details. Boundary adapters validate/translate external representations; application use cases coordinate transactions and ports. Infrastructure implementations provide database and messaging access. Alert is implemented in Phase 4; maintenance/work-order modules remain a future boundary.
 
 ## Initial module/package structure
 
@@ -171,6 +174,7 @@ com.industrialoperations.platform
 ├── sensor/        # sensor registration and platform-owned Sensor -> Machine configuration
 ├── telemetry/     # event contract, processing use cases, Kafka producer/consumer adapters, telemetry persistence
 ├── state/         # latest-state projection and query use cases
+├── alert/         # alerting domain, evaluation service, anti-spam & hysteresis rules, REST adapter
 ├── ingestion/     # MQTT contract, validation, sensor lookup, event creation, Kafka handoff
 └── common/        # narrowly scoped cross-cutting primitives; never a home for feature behavior
 ```
@@ -188,10 +192,12 @@ PostgreSQL schema evolution is managed via **Flyway** versioned SQL migrations (
 | **V1** | `V1__init_schema.sql` | Baseline tables: `machines`, `sensors`, `telemetry` (append-only history), and `machine_latest_state` (projection). |
 | **V2** | `V2__telemetry_idempotency_constraints.sql` | Natural key deduplication: unique composite index `(sensor_id, source_message_id)` and unique constraint on `event_id` (ADR-005). |
 | **V3** | `V3__add_machine_latest_state_version.sql` | Concurrency control: adds `version BIGINT NOT NULL DEFAULT 0` to `machine_latest_state` for JPA `@Version` optimistic locking (ADR-008). |
+| **V4** | `V4__create_alerts_table.sql` | Alerting & Incident Management: creates `alerts` table with composite indexes `(machine_id, status)` and `(status)` (ADR-010). |
+| **V5** | `V5__alerts_partial_unique_index.sql` | Check-then-insert isolation: partial unique index `idx_alerts_open_unique ON alerts (machine_id, rule_type) WHERE status IN ('ACTIVE', 'ACKNOWLEDGED')` (ADR-010). |
 
-## REST API contract
+## REST API contract & Conventions
 
-The REST API surface is located under `/api/v1`:
+The REST API surface is located under `/api/v1`. Endpoints return standard HTTP status codes (`200 OK`, `201 Created`, `400 Bad Request`, `404 Not Found`, `409 Conflict`) with consistent JSON payloads. List endpoints currently return unpaginated collections ordered by timestamp descending; cursor/page-based pagination (`page`, `size`) is planned for Phase 5.
 
 | Method and path | Purpose | Major request/response fields | Basic error cases |
 | --- | --- | --- | --- |
@@ -201,6 +207,24 @@ The REST API surface is located under `/api/v1`:
 | `GET /api/v1/machines/{machineId}/sensors` | Retrieve registered sensors for a machine. | Response: machine ID and a list of `sensorId`, `name`, and `type`. | `404` unknown machine. |
 | `GET /api/v1/machines/{machineId}/telemetry` | Retrieve telemetry history. | Response: machine ID and telemetry entries with `sensorId`, `sourceMessageId`, `eventId`, `occurredAt`, `receivedAt`, and measurements. | `404` unknown machine. |
 | `GET /api/v1/machines/{machineId}/latest-state` | Retrieve the current latest-state projection. | Response: `machineId`, source `sensorId`, `sourceMessageId`, `eventId`, `occurredAt`, `receivedAt`, and measurements. | `404` unknown machine or no telemetry-derived state. |
+| `GET /api/v1/alerts` | Retrieve all active operational alerts. | Response: list of alerts with `id`, `machineId`, `sensorId`, `ruleType`, `severity`, `status`, `currentValue`, `thresholdValue`, `message`, timestamps. | `200` OK. |
+| `GET /api/v1/alerts/machines/{machineId}` | Retrieve all alerts for a specific machine. | Response: list of machine alerts ordered by `triggeredAt DESC`. | `200` OK. |
+| `POST /api/v1/alerts/{alertId}/acknowledge` | Acknowledge an active alert. | Response: acknowledged alert entity with `acknowledgedAt` timestamp. | `404` unknown alert ID. |
+
+## Alerting Engine & Hysteresis Auto-Clearing (Phase 4)
+
+The alerting engine detects critical equipment anomalies in real time without operator alert fatigue or threshold flapping:
+
+| Rule Type | Trigger Condition | Clear Condition (Hysteresis) | Severity | Target Metric |
+|---|---|---|---|---|
+| `HIGH_TEMPERATURE` | Temperature ≥ 90.0°C | Temperature < 85.0°C (5.0°C deadband) | `CRITICAL` | `measurements.temperature` |
+| `HIGH_VIBRATION` | Vibration ≥ 0.80g | Vibration < 0.60g (0.20g deadband) | `CRITICAL` | `measurements.vibration` |
+
+- **Open Alert Deduplication:** When a breach condition persists across continuous high-frequency telemetry messages, the system queries for existing open alerts (`ACTIVE` + `ACKNOWLEDGED`). If an open alert exists, it updates `current_value` in place instead of spawning duplicate database records. Acknowledging an alert does not open a second alert while the machine remains in breach.
+- **Out-of-Order Telemetry Guard:** Telemetry is only evaluated for alerts if it updates or matches the machine's latest operational state projection. Delayed historical readings neither trigger false alerts nor auto-clear active incidents.
+- **Hysteresis Noise Suppression:** Physical sensor readings naturally fluctuate around threshold boundaries due to thermal dissipation and measurement noise (e.g. oscillating between 89.9°C and 90.1°C). By enforcing a separate recovery threshold, rapid open/close cycling (threshold flapping) is completely eliminated.
+- **Operator Lifecycle Transitions:** `ACTIVE` $\rightarrow$ `ACKNOWLEDGED` (via operator REST call to `/api/v1/alerts/{alertId}/acknowledge`) $\rightarrow$ `RESOLVED` (automatically when telemetry safely drops below the recovery threshold).
+- **Concurrency & Partial Unique Index:** Guarded against race conditions via JPA `@Version` on `Alert` and Flyway V5 partial unique index `idx_alerts_open_unique ON alerts (machine_id, rule_type) WHERE status IN ('ACTIVE', 'ACKNOWLEDGED')`.
 
 ## Verification, Testing & Observability Baseline
 
@@ -208,12 +232,13 @@ The platform enforces verification across unit, integration, and operational tie
 
 - **Unit Testing:** Unit tests cover MQTT validation, sensor-to-machine resolution, event envelope creation, and latest-state ordering rules.
 - **Automated Verification Suite:** Ephemeral PostgreSQL and Kafka Testcontainers verify:
-  - Database schema migrations and persistence constraints.
+  - Database schema migrations and persistence constraints (Flyway V1–V5).
   - End-to-end MQTT $\rightarrow$ Kafka $\rightarrow$ PostgreSQL telemetry processing.
   - Consumer downtime buffering and catch-up on restart.
   - Poison pill routing to `telemetry-events-dlt` and header diagnostics (ADR-006).
   - Controlled batch replay from DLT back into primary pipeline (ADR-007).
   - Optimistic locking collision rejection on `MachineLatestState` (ADR-008).
+  - Stateful alerting lifecycle, anti-spam deduplication, out-of-order suppression, and hysteresis auto-clearing (`AlertIntegrationTest.java`, ADR-010).
   - Actuator `/actuator/health` and Prometheus metrics export at `/actuator/prometheus` (ADR-009).
 - **Continuous Integration (GitHub Actions):** `.github/workflows/ci.yml` runs `./mvnw clean verify` with Testcontainers on every push and pull request.
 - **Observability Stack:** Prometheus (:9090) scrapes the application every 5 seconds; Grafana (:3000) provides pre-provisioned dashboards for telemetry ingestion, duplicates, percentiles, and JVM memory.
@@ -229,3 +254,5 @@ The platform enforces verification across unit, integration, and operational tie
 7. **[ADR-007: Controlled DLT Replay Service](adr/ADR-007-controlled-dlt-replay.md)** — Operator-initiated batch replay preventing recursive loops.
 8. **[ADR-008: Optimistic Locking on Machine State](adr/ADR-008-optimistic-locking-and-concurrency.md)** — Concurrency safety using JPA `@Version` and Flyway V3.
 9. **[ADR-009: Application Observability and Metrics](adr/ADR-009-metrics-and-observability.md)** — Prometheus pull scraping, Micrometer counters/timers, and Grafana dashboard.
+10. **[ADR-010: Stateful Alerting Engine and Hysteresis](adr/ADR-010-alerting-engine-and-hysteresis.md)** — In-pipeline operational threshold evaluation, anti-spam row deduplication, noise suppression hysteresis deadbands, and operator lifecycle management.
+11. **[ADR-011: Cloud Deployment Architecture & Container Orchestration](adr/ADR-011-cloud-deployment-and-containerization.md)** — Docker Compose on AWS EC2, self-contained multi-stage build, and dynamic public IP addressing.

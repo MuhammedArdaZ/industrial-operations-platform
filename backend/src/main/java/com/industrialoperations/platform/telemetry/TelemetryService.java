@@ -60,7 +60,7 @@ public class TelemetryService {
 
             Telemetry saved = telemetryRepository.save(telemetry);
 
-            machineStateService.updateLatestState(new LatestStateUpdate(
+            var state = machineStateService.updateLatestState(new LatestStateUpdate(
                     command.machineId(),
                     saved.getTelemetryId(),
                     command.eventId(),
@@ -70,12 +70,17 @@ public class TelemetryService {
                     command.receivedAt(),
                     command.measurements()));
 
-            alertService.evaluateTelemetry(
-                    command.machineId(),
-                    command.sensorId(),
-                    command.occurredAt(),
-                    command.measurements().temperature(),
-                    command.measurements().vibration());
+            if (state.getOccurredAt().equals(command.occurredAt())) {
+                alertService.evaluateTelemetry(
+                        command.machineId(),
+                        command.sensorId(),
+                        command.occurredAt(),
+                        command.measurements().temperature(),
+                        command.measurements().vibration());
+            } else {
+                log.info("Skipping alert evaluation for out-of-order telemetry on machineId={}, occurredAt={}",
+                        command.machineId(), command.occurredAt());
+            }
 
             telemetryMetrics.incrementIngested();
 

@@ -12,6 +12,8 @@ public interface AlertRepository extends JpaRepository<Alert, UUID> {
     
     Optional<Alert> findByMachineIdAndRuleTypeAndStatus(UUID machineId, AlertRuleType ruleType, AlertStatus status);
 
+    Optional<Alert> findByMachineIdAndRuleTypeAndStatusIn(UUID machineId, AlertRuleType ruleType, java.util.Collection<AlertStatus> statuses);
+
     List<Alert> findByMachineIdOrderByTriggeredAtDesc(UUID machineId);
 
     List<Alert> findByStatusOrderByTriggeredAtDesc(AlertStatus status);

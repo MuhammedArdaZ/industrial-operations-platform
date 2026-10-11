@@ -13,21 +13,19 @@ However, dead lettered messages cannot remain permanently inert. In real operati
 
 1. **Administrative Controlled Replay (On-Demand):**
    - Replay is explicitly **operator-triggered**, never fully automatic or running in an uncontrolled infinite loop.
-   - Implemented as `TelemetryDltReplayService` exposed via an administrative endpoint (`POST /api/v1/admin/telemetry/dlt/replay`) with a configurable `maxMessages` batch limit.
+   - Implemented as `TelemetryDltReplayService.replay(int maxRecords)` using a bounded batch limit. An authenticated admin REST endpoint is planned for Phase 5.
 
 2. **Replay Flow:**
-   - Dedicated replay consumer reads uncommitted records from `telemetry-events-dlt`.
-   - Records are stripped of transport-level error headers (such as `kafka_dlt-exception-fqcn`) to avoid confusing downstream consumers.
-   - An operational header `kafka_dlt-replay-count` is incremented.
+   - Dedicated replay consumer with isolated group `telemetry-dlt-replay-group` reads uncommitted records from `telemetry-events-dlt`.
    - The payload is re-published to the primary topic `telemetry-events` using `kafkaTemplate.send()`.
-   - The offset in `telemetry-events-dlt` is committed upon successful republish.
+   - The offset in `telemetry-events-dlt` is committed synchronously (`commitSync()`) upon successful republish.
 
-3. **Loop Prevention (Poison Pill Safeguard):**
-   - If a replayed message fails processing again in the primary consumer, it is routed back to the DLT by `DeadLetterPublishingRecoverer`.
-   - If `kafka_dlt-replay-count` exceeds the maximum replay threshold (e.g. 3 attempts), the message is flagged as permanently unrecoverable and logged for manual operator triage, stopping recursive replay loops.
+3. **Loop Prevention & Message Eligibility:**
+   - Replay is intended for messages quarantined due to transient infrastructure outages or software bugs that have been patched in downstream consumers.
+   - Permanently malformed poison pills (e.g. invalid JSON, missing critical keys) should be purged or fixed prior to replay to prevent them from failing validation and immediately returning to the DLT.
 
 ## Consequences
 
 - Engineers can safely reprocess failed telemetry points after deploying fixes.
 - Decoupling replay from real-time consumption ensures batch replay does not starve or overwhelm ongoing real-time ingestion.
-- Offset tracking on the DLT ensures no message is replayed more than once per execution.
+- Synchronous offset tracking on the DLT ensures no message is replayed more than once per execution.

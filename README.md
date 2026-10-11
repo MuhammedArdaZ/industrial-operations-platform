@@ -1,14 +1,16 @@
 # Industrial Operations Platform
 
 [![CI Pipeline](https://github.com/MuhammedArdaZ/industrial-operations-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/MuhammedArdaZ/industrial-operations-platform/actions/workflows/ci.yml)
+[![Deployment](https://img.shields.io/badge/AWS%20EC2-Live%20Deployment-232F3E?logo=amazon-aws)](docs/adr/ADR-011-cloud-deployment-and-containerization.md)
+[![Grafana](https://img.shields.io/badge/Grafana-Live%20Dashboard-F46800?logo=grafana)](docs/adr/ADR-011-cloud-deployment-and-containerization.md)
 
-Industrial Operations Platform is a modular-monolith backend designed for high-frequency industrial equipment monitoring, telemetry ingestion, and asset tracking. It demonstrates practical enterprise backend architecture and distributed-systems patterns without introducing premature microservices or operational overhead.
+Industrial Operations Platform is a modular-monolith backend designed for high-frequency industrial equipment monitoring, telemetry ingestion, operational alerting, and asset tracking. It demonstrates practical enterprise backend architecture and distributed-systems patterns without introducing premature microservices or operational overhead.
 
 ---
 
 ## 🏗️ Architectural Overview & Telemetry Pipeline
 
-The platform ingests high-frequency telemetry from factory floor sensors via MQTT, provides an asynchronous and decoupled buffer via Apache Kafka, and persists immutable historical facts alongside an optimized machine latest-state projection in PostgreSQL.
+The platform ingests high-frequency telemetry from factory floor sensors via MQTT, provides an asynchronous and decoupled buffer via Apache Kafka, persists immutable historical facts alongside an optimized machine latest-state projection, and evaluates stateful operational threshold alerts with anti-spam deduplication and hysteresis auto-clearing in PostgreSQL.
 
 ```text
 ┌───────────────────┐       MQTT        ┌───────────────────────────────────────────────┐
@@ -25,7 +27,7 @@ The platform ingests high-frequency telemetry from factory floor sensors via MQT
 │ (System of Record)│                   └──────────────┬──────────────┘
 └─────────┬─────────┘                                  │ Poison Pill / Fatal Error
           │                                            ▼
-          │ Read Latest State                   ┌─────────────────────────────┐
+          │ Read State & Alerts                 ┌─────────────────────────────┐
           ▼                                     │  Dead Letter Topic (-dlt)   │
 ┌───────────────────┐                           └──────────────┬──────────────┘
 │ REST API (/api/v1)│                                          │ Controlled Replay
@@ -54,6 +56,8 @@ The platform ingests high-frequency telemetry from factory floor sensors via MQT
 - **[ADR-007: Controlled DLT Replay Strategy](docs/adr/ADR-007-controlled-dlt-replay.md)** — Administrative operator-triggered batch replay mechanism to reprocess quarantined dead-letter messages safely while preventing recursive loop ping-pong hazards.
 - **[ADR-008: Optimistic Locking and Concurrency Control](docs/adr/ADR-008-optimistic-locking-and-concurrency.md)** — Eliminates silent lost updates on machine state projection using JPA `@Version` and Flyway V3 column, rejecting pessimistic row locking to avoid database lock contention on the ingestion path.
 - **[ADR-009: Observability and Metrics](docs/adr/ADR-009-metrics-and-observability.md)** — Pull-based metrics scraping via Prometheus, Micrometer domain counters/timers, Actuator health endpoints, and pre-provisioned Grafana dashboards.
+- **[ADR-010: Stateful Alerting Engine and Hysteresis](docs/adr/ADR-010-alerting-engine-and-hysteresis.md)** — In-pipeline operational threshold evaluation, anti-spam alert row deduplication, noise suppression hysteresis deadbands (clearing at 85.0°C / 0.60g), and operator lifecycle management via Flyway V4 composite indexes and Flyway V5 partial unique index.
+- **[ADR-011: Cloud Deployment Architecture & Container Orchestration](docs/adr/ADR-011-cloud-deployment-and-containerization.md)** — Production-like deployment on AWS EC2 (`m7i-flex.large`) using multi-stage Docker build and Docker Compose orchestration with dynamic public IP management.
 
 ---
 
@@ -66,6 +70,7 @@ The codebase is organized by business feature/domain rather than generic technic
 - `ingestion` — MQTT device boundary (Eclipse Paho), payload validation, and event wrapping.
 - `telemetry` — Immutable event processing, Kafka producer/consumer adapters, historical storage, and DLT replay.
 - `state` — Optimized latest-state projection derived from telemetry events.
+- `alert` — Threshold anomaly detection, anti-spam deduplication, hysteresis auto-clearing, and incident lifecycle management.
 - `common` — Narrowly scoped, cross-cutting primitives only.
 
 ---
@@ -74,7 +79,7 @@ The codebase is organized by business feature/domain rather than generic technic
 
 - **Runtime & Language:** Java 25
 - **Framework:** Spring Boot 3.5 (Spring MVC, Spring Data JPA, Spring Kafka)
-- **Database & Migrations:** PostgreSQL 16+, Flyway Versioned Migrations (`V1 Baseline`, `V2 Idempotency Constraints`, `V3 Optimistic Locking Version`)
+- **Database & Migrations:** PostgreSQL 16+, Flyway Versioned Migrations (`V1 Baseline`, `V2 Idempotency Constraints`, `V3 Optimistic Locking Version`, `V4 Alerting Engine & Composite Indexes`, `V5 Open Alerts Partial Unique Index`)
 - **Messaging & Ingress:** Eclipse Mosquitto (MQTT 3.1.1), Apache Kafka 3.7+
 - **Observability & Metrics:** Spring Boot Actuator, Micrometer Prometheus, Prometheus v2.51, Grafana 10.4
 - **Testing & Verification:** JUnit 5, AssertJ, Testcontainers (PostgreSQL, Kafka), Awaitility
@@ -116,7 +121,7 @@ docker compose up -d
 ```
 
 This boots the entire operational stack:
-- **PostgreSQL 16** on port `5432` (Flyway migrations `V1`, `V2`, `V3` auto-applied)
+- **PostgreSQL 16** on port `5432` (Flyway migrations `V1`–`V5` auto-applied)
 - **Eclipse Mosquitto MQTT** on port `1883`
 - **Apache Kafka (KRaft)** on port `9092` (internal container listener on `29092`)
 - **Spring Boot Backend** on port `8080` (health at `/actuator/health`, metrics at `/actuator/prometheus`)
@@ -148,8 +153,35 @@ python3 sensor_simulator.py
 Query the live machine latest-state projection (use the `machineId` printed in the sensor simulator console output; `jq` is optional for pretty-printing):
 
 ```bash
+# Query latest operational state projection
 curl -s http://localhost:8080/api/v1/machines/<MACHINE_ID>/latest-state | jq .
+
+# List all currently active alerts
+curl -s http://localhost:8080/api/v1/alerts | jq .
+
+# List alert history for a specific machine
+curl -s http://localhost:8080/api/v1/alerts/machines/<MACHINE_ID> | jq .
+
+# Acknowledge an active alert
+curl -s -X POST http://localhost:8080/api/v1/alerts/<ALERT_ID>/acknowledge | jq .
 ```
+
+---
+
+### 🌐 Live Cloud Deployment (AWS EC2)
+
+The platform is deployed live on an **AWS EC2** instance (`m7i-flex.large`, 2 vCPU, 8 GB RAM, Ubuntu 24.04). In accordance with ADR-011, dynamic public addressing is used (Elastic IP is avoided to prevent idle billing charges when stopped):
+
+| Service | Public Endpoint | Credentials / Purpose |
+|---|---|---|
+| **Spring Boot Actuator** | `http://<EC2_PUBLIC_IP>:8080/actuator/health` | Subsystem health status (`UP`) |
+| **Prometheus Metrics** | `http://<EC2_PUBLIC_IP>:8080/actuator/prometheus` | Domain counters & latency percentiles |
+| **Operational Alerts API** | `http://<EC2_PUBLIC_IP>:8080/api/v1/alerts` | Active threshold alerts |
+| **Grafana Dashboard** | `http://<EC2_PUBLIC_IP>:3000` | `admin` / `admin` (Real-time telemetry dashboard) |
+
+*(Note: During initial cloud provisioning, the active public IP was `13.48.84.116`. Replace `<EC2_PUBLIC_IP>` with the current public IPv4 address of the EC2 instance).*
+
+The cloud deployment runs the complete stack via Docker Compose: Mosquitto MQTT, Kafka KRaft, PostgreSQL 16 (Flyway V1–V5), Spring Boot multi-stage build, Prometheus, Grafana, and the Python sensor simulator streaming live telemetry continuously.
 
 ---
 
@@ -162,11 +194,19 @@ curl -s http://localhost:8080/api/v1/machines/<MACHINE_ID>/latest-state | jq .
   - [x] Dead Letter Topic & Poison Pill resilience (`telemetry-events-dlt`, `FixedBackOff`, ADR-006)
   - [x] Controlled replay of failed DLT events (`TelemetryDltReplayService`, ADR-007)
   - [x] Concurrency & optimistic locking (`@Version` on `MachineLatestState`, Flyway V3, ADR-008)
-  - [x] Distributed failure matrix & recovery experiments (consumer downtime buffering, poison pill quarantine, out-of-order clock rejection, concurrent race tests; [docs/failure-scenarios.md](docs/failure-scenarios.md))  
-    *(Redis caching/locks deferred in favor of SQL optimistic locking, see ADR-008. Alerts/work-orders are candidate Phase 4 scenarios.)*
+  - [x] Distributed failure matrix & recovery experiments (consumer downtime buffering, poison pill quarantine, out-of-order clock rejection, concurrent race tests; [docs/failure-scenarios.md](docs/failure-scenarios.md))
 - [x] **Phase 3 — Production Readiness:**
   - [x] Full application containerization & Docker Compose orchestration (`backend/Dockerfile`, dual Kafka listeners)
   - [x] GitHub Actions CI pipeline with Testcontainers verification (`.github/workflows/ci.yml`)
   - [x] Prometheus metrics endpoint & Actuator health checks (`TelemetryMetrics`, Micrometer, `/actuator/prometheus`)
   - [x] Grafana dashboards for telemetry pipeline observability (`industrial-telemetry-dashboard.json`, Prometheus `:9090`, Grafana `:3000`)
+- [x] **Phase 4 — Operational Alerting & Hysteresis Engine:**
+  - [x] Composite stateful alerting table & indexes (`machine_id, status`, Flyway V4, ADR-010)
+  - [x] Open-alert partial unique index for parallel replay concurrency (`idx_alerts_open_unique`, Flyway V5, ADR-010)
+  - [x] Critical threshold evaluation (Temperature ≥ 90.0°C, Vibration ≥ 0.80g) with anti-spam row deduplication
+  - [x] Noise suppression & hysteresis auto-clear deadbands (clearing when Temp < 85.0°C, Vib < 0.60g)
+  - [x] Out-of-order telemetry suppression (guarded by machine latest-state occurredAt)
+  - [x] REST API endpoints (`/api/v1/alerts`, `/api/v1/alerts/machines/{machineId}`, `/api/v1/alerts/{alertId}/acknowledge`)
+  - [x] Full lifecycle integration testing (`ACTIVE` → `ACKNOWLEDGED` → `RESOLVED`, `AlertIntegrationTest`)
+  - [x] Live cloud deployment to AWS EC2 (`<EC2_PUBLIC_IP>`) with multi-stage Docker build (ADR-011)
 

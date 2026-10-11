@@ -188,7 +188,7 @@ class SensorSimulator:
         # Chaos injection: abnormal spike
         if self.chaos_abnormal > 0 and random.random() < self.chaos_abnormal:
             abnormal_temp = round(random.uniform(120.0, 160.0), 2)
-            abnormal_vib = round(random.uniform(0.300, 0.850), 4)
+            abnormal_vib = round(random.uniform(0.850, 1.850), 4)
             logger.warning(f"CHAOS: Injected abnormal spike -> Temp: {abnormal_temp} °C | Vib: {abnormal_vib} g")
             return abnormal_temp, abnormal_vib
 

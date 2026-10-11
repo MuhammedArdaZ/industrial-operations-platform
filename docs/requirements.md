@@ -27,7 +27,7 @@ The initial release is a single modular Spring Boot application. It is intended 
 
 ## Functional requirements
 
-### Phase 1
+### Phase 1 Baseline (Historical Specification)
 
 1. The system shall create and retrieve machines.
 2. The system shall register sensors for a machine and retrieve that machine's sensors.
@@ -37,31 +37,34 @@ The initial release is a single modular Spring Boot application. It is intended 
 6. The Kafka consumer shall validate the internal event, then in one database transaction persist immutable telemetry and update the machine latest-state projection; it shall acknowledge the Kafka message only after that transaction commits.
 7. The REST API shall return machine details, its sensors, telemetry history, and the latest known machine state.
 8. The system shall retain sufficient event metadata to trace a persisted telemetry record back to its source message.
-9. Phase 1 shall not implement alerts or maintenance/work-order workflows.
+9. Phase 1 shall not implement alerts or maintenance/work-order workflows (delivered subsequently in Phase 4).
 
-### Delivered Capabilities (Phases 1–3)
+### Delivered Capabilities (Phases 1–4)
 
-1. **Machine & Sensor Registry:** REST API endpoints to register and retrieve machines and their associated sensors.
+1. **Machine & Sensor Registry:** REST API endpoints to register and retrieve machines and their associated sensors. Sensors are multi-measurement units reporting combined `temperature` and `vibration` observations in each payload.
 2. **Telemetry Ingestion & Resolution:** Ingests MQTT telemetry, resolves authoritative machine identity from platform-owned sensor configuration, and creates an immutable Kafka event envelope.
 3. **Decoupled Asynchronous Processing:** Kafka telemetry topic with partition key by `machineId` guarantees in-order message delivery per machine.
 4. **Idempotency & Deduplication:** Pre-insert check and composite natural key constraint `(sensor_id, source_message_id)` on `telemetry` table prevents duplicate insertions from network/broker re-deliveries (ADR-005).
 5. **Optimistic Locking & State Projection:** Machine latest-state projection updated atomically with telemetry persistence; JPA `@Version` concurrency control prevents lost updates under race conditions (ADR-008).
 6. **Dead Letter Topic & Error Handling:** `telemetry-events-dlt` quarantines malformed poison pill messages via `FixedBackOff(1000L, 2L)` without stalling partition consumption (ADR-006).
 7. **Controlled Replay:** Operator-initiated batch replay service (`TelemetryDltReplayService`) safely re-injects quarantined messages while preventing infinite replay loops (ADR-007).
-8. **Chaos Sensor Simulator:** Python simulator supporting realistic streams and injection of duplicate deliveries, corrupted payloads, abnormal spikes, and bursts.
+8. **Chaos Sensor Simulator:** Python simulator supporting realistic streams and injection of duplicate deliveries, corrupted payloads, abnormal spikes (temperature 120–160°C, vibration 0.85–1.85g), and bursts.
 9. **Observability & Dashboards:** Prometheus endpoint (`/actuator/prometheus`), custom domain counters and percentile timers (`TelemetryMetrics`), Prometheus container (:9090), and pre-configured Grafana telemetry dashboard (:3000) (ADR-009).
-10. **Containerization & CI:** Docker Compose orchestrating all 6 platform components; automated GitHub Actions CI verifying the complete test suite on every commit.
+10. **Containerization & CI:** Docker Compose orchestrating all platform components; automated GitHub Actions CI verifying the complete test suite on every commit.
+11. **Stateful Alerting Engine & Hysteresis:** Evaluates operational threshold anomalies (temperature ≥ 90.0°C, vibration ≥ 0.80g) in-pipeline within the database transaction; performs in-place anti-spam row deduplication across all open alerts (`ACTIVE` + `ACKNOWLEDGED`); suppresses threshold flapping via hysteresis auto-clearing deadbands (clearing when temperature < 85.0°C, vibration < 0.60g); enforces check-then-insert isolation via Flyway V5 partial unique index `idx_alerts_open_unique`; exposes operational REST lifecycle endpoints (`/api/v1/alerts`, `/acknowledge`) (ADR-010).
+12. **Live Cloud Deployment:** Deployed on AWS EC2 (`<EC2_PUBLIC_IP>`) with multi-stage Docker build, Prometheus, Grafana, and sensor simulator running 24/7 (ADR-011).
 
-### Future functional capabilities (Phase 4 / Extensions)
+### Future functional capabilities (Phase 5 / Extensions)
 
-- Business alert rules derived from operational telemetry conditions (e.g. temperature > 90°C).
-- Maintenance work orders associated with machines and trigger alerts.
+- Maintenance work orders associated with machines and triggered alerts.
+- Dynamic machine-specific alert thresholds and multi-tier warning severity (`AlertSeverity.WARNING`).
 - Live Factory Floor Web UI (WebSocket / Server-Sent Events).
 - OpenAPI / Swagger interactive documentation (`springdoc-openapi`).
+- OpenTelemetry and distributed tracing.
 
 ## Non-functional requirements
 
-- **Maintainability:** Clear modular monolith boundaries (`machine`, `sensor`, `ingestion`, `telemetry`, `state`, `common`), minimal dependencies, and Flyway versioned migrations (`V1`, `V2`, `V3`).
+- **Maintainability:** Clear modular monolith boundaries (`machine`, `sensor`, `ingestion`, `telemetry`, `state`, `alert`, `common`), minimal dependencies, and Flyway versioned migrations (`V1`, `V2`, `V3`, `V4`, `V5`).
 - **Correctness:** Strict boundary validation (`TelemetryEventValidator`, `MqttTelemetryPayload`); UTC/offset-aware event times; tested persistence and state-projection ordering.
 - **Reliability:** At-least-once transport combined with idempotent persistence (Flyway V2) and optimistic locking (Flyway V3, ADR-008) guarantees consistency. Poison pills are safely quarantined to DLT (ADR-006).
 - **Observability:** Structured logs; Actuator `/actuator/health` and `/actuator/prometheus`; Micrometer domain metrics (ingestion count, duplicate count by reason, latency percentiles); Grafana visualization (:3000) (ADR-009).

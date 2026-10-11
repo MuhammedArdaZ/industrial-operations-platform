@@ -20,8 +20,8 @@ public class TelemetryMetrics {
                 .register(meterRegistry);
 
         this.duplicateSensorMessageCounter = Counter.builder("telemetry.duplicates.total")
-                .tag("reason", "sensor_message_id")
-                .description("Duplicate telemetries detected by sensor and message id")
+                .tag("reason", "source_message_id")
+                .description("Duplicate telemetries detected by sensor and source message id")
                 .register(meterRegistry);
 
         this.duplicateEventCounter = Counter.builder("telemetry.duplicates.total")

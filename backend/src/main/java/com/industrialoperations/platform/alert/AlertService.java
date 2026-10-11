@@ -18,6 +18,8 @@ public class AlertService {
     private static final BigDecimal VIBRATION_THRESHOLD = BigDecimal.valueOf(0.80);
     private static final BigDecimal VIBRATION_CLEAR_THRESHOLD = BigDecimal.valueOf(0.60);
 
+    private static final List<AlertStatus> OPEN_STATUSES = List.of(AlertStatus.ACTIVE, AlertStatus.ACKNOWLEDGED);
+
     private final AlertRepository alertRepository;
 
     public AlertService(AlertRepository alertRepository) {
@@ -47,13 +49,13 @@ public class AlertService {
         }
 
         if (temperature.compareTo(TEMPERATURE_THRESHOLD) >= 0) {
-            Optional<Alert> activeAlert = alertRepository.findByMachineIdAndRuleTypeAndStatus(
+            Optional<Alert> openAlert = alertRepository.findByMachineIdAndRuleTypeAndStatusIn(
                     machineId,
                     AlertRuleType.HIGH_TEMPERATURE,
-                    AlertStatus.ACTIVE);
+                    OPEN_STATUSES);
 
-            if (activeAlert.isPresent()) {
-                Alert alert = activeAlert.get();
+            if (openAlert.isPresent()) {
+                Alert alert = openAlert.get();
                 alert.updateCurrentValue(temperature);
                 alertRepository.save(alert);
             } else {
@@ -84,13 +86,13 @@ public class AlertService {
         }
 
         if (vibration.compareTo(VIBRATION_THRESHOLD) >= 0) {
-            Optional<Alert> activeAlert = alertRepository.findByMachineIdAndRuleTypeAndStatus(
+            Optional<Alert> openAlert = alertRepository.findByMachineIdAndRuleTypeAndStatusIn(
                     machineId,
                     AlertRuleType.HIGH_VIBRATION,
-                    AlertStatus.ACTIVE);
+                    OPEN_STATUSES);
 
-            if (activeAlert.isPresent()) {
-                Alert alert = activeAlert.get();
+            if (openAlert.isPresent()) {
+                Alert alert = openAlert.get();
                 alert.updateCurrentValue(vibration);
                 alertRepository.save(alert);
             } else {

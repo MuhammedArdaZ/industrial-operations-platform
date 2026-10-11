@@ -8,7 +8,7 @@ Phase 1 must make telemetry history and machine latest state mutually consistent
 
 Use the following intended Phase 1 ordering: validate the Kafka message; begin a database transaction; persist immutable telemetry; update the machine latest-state projection; commit the database transaction; then acknowledge the Kafka message. Treat telemetry persistence and latest-state projection as one database consistency boundary. Describe the delivery model as at-least-once, not end-to-end exactly-once.
 
-Idempotent processing, retries, DLQ, replay, and comprehensive failure semantics are deferred to Phase 2, where each solution must be demonstrated by a documented experiment and test.
+Idempotent processing, retries, DLT, replay, and comprehensive failure semantics are deferred to Phase 2, where each solution must be demonstrated by a documented experiment and test.
 
 ## Consequences
 
