@@ -20,3 +20,6 @@ target/
 .project
 .settings/
 .vscode/
+
+# Private Keys
+*.pem
