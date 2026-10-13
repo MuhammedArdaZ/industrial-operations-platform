@@ -16,7 +16,7 @@ Sensor Simulator -> MQTT Broker -> Spring Boot MQTT Ingestion -> Kafka Producer 
 
 - [x] Defined machine and sensor domain model.
 - [x] Implemented Python sensor simulator publishing telemetry for configurable machines and sensors to MQTT (`simulator/sensor_simulator.py`).
-- [x] Added PostgreSQL persistence with Flyway `V1__init_schema.sql`.
+- [x] Added PostgreSQL persistence with Flyway `V1__create_phase_1_baseline.sql`.
 - [x] Exposed Spring Boot REST endpoints for machines, sensors, telemetry history, and latest state (`/api/v1/...`).
 - [x] Validated MQTT topic/payload contract and Kafka internal event envelope (ADR-001, ADR-002, ADR-004).
 - [x] Ingested MQTT telemetry and published validated events to Kafka.
@@ -51,7 +51,7 @@ Sensor Simulator -> MQTT Broker -> Spring Boot MQTT Ingestion -> Kafka Producer 
 - [x] **Expanded Testcontainers suite:** Full automated test suite (unit and integration tests) passing (`./mvnw clean verify`).
 - [x] **GitHub Actions CI:** Automated pipeline building the JAR and running all Testcontainers tests on pull requests (`.github/workflows/ci.yml`).
 - [x] **Application health checks:** Spring Boot Actuator `/actuator/health` reporting live subsystem status.
-- [x] **Prometheus metrics:** Domain counters (`telemetry_ingested_total`, `telemetry_duplicates_total` with `reason` tag) and percentile timers (`telemetry_processing_duration_seconds`) at `/actuator/prometheus` (ADR-009).
+- [x] **Prometheus metrics:** Domain counters (`telemetry_ingested_total`, `telemetry_duplicates_total` with `reason` tag) and percentile timers (`telemetry_processing_time_seconds`) at `/actuator/prometheus` (ADR-009).
 - [x] **Grafana dashboards:** Pre-provisioned dashboards on port `3000` monitoring live ingestion, duplicates, latencies, and JVM memory.
 
 **Exit criteria:** **MET.** `docker compose up -d` boots the entire stack; `./mvnw clean verify` validates the complete test suite; Prometheus and Grafana provide instant visual observability.

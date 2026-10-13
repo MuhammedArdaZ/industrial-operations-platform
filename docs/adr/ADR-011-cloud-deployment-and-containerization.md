@@ -20,10 +20,10 @@ The deployment needed to satisfy the following requirements:
      - `industrial-backend` (Spring Boot 3.5 multi-stage Docker build)
      - `industrial-prometheus` (Prometheus v2.51)
      - `industrial-grafana` (Grafana 10.4 with pre-provisioned dashboards)
-     - `sensor-simulator` (Python sensor simulator profile running continuously)
+     - `industrial-simulator` (Python sensor simulator; Compose service `simulator`, enabled with `--profile simulator`, running continuously)
 
 2. **Self-Contained Multi-Stage Docker Build:**
-   - Migrate `backend/Dockerfile` to a multi-stage Maven build (`eclipse-temurin:25-jdk-alpine` builder stage, `eclipse-temurin:25-jre-alpine` runtime stage).
+   - Migrate `backend/Dockerfile` to a multi-stage Maven build (`eclipse-temurin:25-jdk-noble` builder stage, `eclipse-temurin:25-jre-noble` runtime stage, running as a non-root `spring` user).
    - Eliminates the need to install JDK 25 or Maven on the cloud host, isolating compilation dependencies inside the container engine.
 
 3. **Dynamic Public IP vs Elastic IP (Cost Decision):**
@@ -35,7 +35,7 @@ The deployment needed to satisfy the following requirements:
      - Port 22: SSH (keypair authentication via `industrial-key.pem`)
      - Port 8080: Spring Boot REST API & Actuator endpoints
      - Port 3000: Grafana visualization dashboard (`admin` / `admin`)
-   - Internal ports (5432 PostgreSQL, 1883 MQTT, 9092 Kafka, 9090 Prometheus) communicate securely across the Docker internal bridge network.
+   - Services talk to each other over the Docker Compose bridge network (`postgres:5432`, `mosquitto:1883`, `kafka:29092`, `prometheus:9090`). Note that `docker-compose.yml` still publishes 5432, 1883, 9092 and 9090 on the host for local development, so on EC2 the security group is the only control keeping them private; Mosquitto also allows anonymous clients. A cloud-specific override that removes these host port mappings is the safer configuration.
 
 ## Alternatives Considered
 

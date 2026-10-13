@@ -109,7 +109,7 @@ The Python sensor simulator (`simulator/sensor_simulator.py`) includes dedicated
 | Flag | Parameter | Description |
 |---|---|---|
 | `--chaos-duplicates` | `0.0 - 1.0` (float) | Injects immediate duplicate MQTT transmissions with identical `sourceMessageId`. |
-| `--chaos-malformed` | `0.0 - 1.0` (float) | Injects corrupted schema/missing field payloads (poison pills). |
+| `--chaos-malformed` | `0.0 - 1.0` (float) | Injects payloads with the `measurements` block missing. These are rejected and discarded by `MqttIngestionAdapter` at the MQTT boundary, so they exercise ingestion validation, not the Kafka DLT (DLT routing is exercised by `shouldRejectInvalidMessageAndSendToDLT`, which writes directly to Kafka). |
 | `--chaos-abnormal` | `0.0 - 1.0` (float) | Injects extreme temperature/vibration spikes (120-160°C, 0.85-1.85g) reliably breaching alert thresholds. |
 | `--burst-size` | `N` (int) | Emits bursts of $N$ messages per cycle to simulate traffic surges. |
 
@@ -118,8 +118,10 @@ The Python sensor simulator (`simulator/sensor_simulator.py`) includes dedicated
 ## Known Distributed Resilience Boundaries & Disaster Recovery Gaps
 
 1. **Ingress Boundary & MQTT Publisher Failure:**
-   - Under Eclipse Paho MQTT QoS 1, the broker expects a `PUBACK` packet. If the internal Kafka producer fails to publish to `telemetry-events`, the ingestion adapter throws an exception and does not acknowledge the MQTT message, causing the MQTT broker/gateway to retransmit the packet.
+   - Under Eclipse Paho MQTT QoS 1, the client sends `PUBACK` when `messageArrived` returns normally. `MqttTelemetryClient` rethrows unexpected runtime failures so the message is not acknowledged (Paho drops the connection and the broker redelivers to the persistent session, `cleanSession=false`).
+   - **Gap:** `KafkaTelemetryProducer.publish` calls `kafkaTemplate.send(...)` without awaiting the returned future. A broker-side failure therefore surfaces asynchronously, after `messageArrived` has already returned and `PUBACK` has been sent, so the MQTT message is acknowledged and the telemetry is lost. Only failures thrown synchronously by `send` (e.g. metadata timeout after `max.block.ms`) currently prevent the acknowledgement. Closing this gap requires awaiting the send result (with a bounded timeout) before returning from the MQTT callback.
    - Kafka producer uses `acks=all` and default Kafka 3.x producer idempotence (`enable.idempotence=true`).
+   - Invalid MQTT messages (bad topic, malformed JSON, missing fields, unregistered sensor) are logged and discarded at the ingestion boundary. They never reach Kafka or the DLT and are not counted by a metric.
 2. **Infrastructure Outage vs. DLT Overflow:**
    - With `FixedBackOff(1000L, 2L)`, an unexpected PostgreSQL outage lasting longer than 2 seconds causes uncommitted messages to be routed to `telemetry-events-dlt`. For high-volume production deployments, container pausing (`CommonContainerStoppingErrorHandler`) is recommended to halt partition consumption instead of accumulating valid telemetry in DLT.
 3. **Security & Access Control:**

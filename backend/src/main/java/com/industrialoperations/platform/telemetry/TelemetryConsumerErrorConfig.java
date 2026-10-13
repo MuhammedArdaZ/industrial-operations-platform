@@ -8,11 +8,9 @@ import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.util.backoff.FixedBackOff;
 
 /**
- * Phase 1 failure classification for the telemetry consumer. Permanently
- * invalid messages are
- * skipped after being logged; every other failure keeps the default retry
- * behaviour so that a
- * transient outage still results in redelivery.
+ * Failure classification for the telemetry consumer (ADR-006). Permanently invalid messages go
+ * straight to {@code telemetry-events-dlt}; every other failure is retried twice, one second
+ * apart, before being dead-lettered.
  */
 @Configuration
 public class TelemetryConsumerErrorConfig {

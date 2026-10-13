@@ -148,6 +148,14 @@ python3 sensor_simulator.py
 
 *(Tip: To test chaos resilience and observe live duplicate counters in Grafana, run: `python3 sensor_simulator.py --interval 0.5 --burst-size 3 --chaos-duplicates 0.3`)*
 
+Alternatively, run the simulator as a container (this is how the EC2 deployment runs it). It is behind a Compose profile, so a plain `docker compose up -d` does not start it:
+
+```bash
+docker compose --profile simulator up -d simulator
+```
+
+The simulator registers its machine and sensor through the REST API once at startup and does not retry. If the backend is not ready yet, registration fails and every message is rejected as "sensor is not registered"; restart the simulator container once `/actuator/health` reports `UP`.
+
 #### Step D: Verify via REST API
 
 Query the live machine latest-state projection (use the `machineId` printed in the sensor simulator console output; `jq` is optional for pretty-printing):

@@ -41,9 +41,10 @@ In high-frequency industrial IoT monitoring, machinery continuously streams tele
      This guarantees at the PostgreSQL engine level that two concurrent transactions can never insert multiple open alerts for the same machine and rule type.
 
 6. **Scope Boundaries for Phase 4:**
-   - **Hardcoded Thresholds:** Eşik değerleri (90.0°C / 0.80g) Phase 4 kapsamında koda gömülü olarak belirlenmiştir. Makine ve sensör bazlı dinamik eşik konfigürasyonu Phase 5 kapsamına bırakılmıştır.
-   - **Severity Tiers:** `AlertSeverity` enum'ı `WARNING` ve `CRITICAL` değerlerini tanımlar. Phase 4'te kritik güvenlik eşikleri `CRITICAL` olarak değerlendirilir; çok kademeli uyarı eşikleri Phase 5 için rezerve edilmiştir.
-   - **Authentication:** REST uç noktaları (`/api/v1/alerts`, `/acknowledge`) bu aşamada yerel geliştirme ve gösterim amaçlı kimlik doğrulamasızdır. `acknowledged_by` operatör kimliği ve RBAC koruması Phase 5 güvenlik sıkılaştırması olarak planlanmıştır.
+   - **Hardcoded Thresholds:** The thresholds (90.0°C / 0.80g) are hardcoded constants in `AlertService` for Phase 4. Machine- and sensor-specific dynamic threshold configuration is deferred to Phase 5.
+   - **Severity Tiers:** `AlertSeverity` defines `WARNING` and `CRITICAL`. Phase 4 evaluates only the critical safety thresholds as `CRITICAL`; multi-tier warning thresholds are reserved for Phase 5.
+   - **Authentication:** The REST endpoints (`/api/v1/alerts`, `/acknowledge`) are unauthenticated in this phase for local development and demonstration. Recording the operator identity (`acknowledged_by`) and RBAC protection are planned as Phase 5 security hardening.
+   - **Alert key granularity:** Open alerts are keyed by `(machine_id, rule_type)` and the out-of-order guard compares against the machine-level latest state. This is correct for the current one-sensor-unit-per-machine setup. With several sensor units on one machine, readings from different units would share one alert and one hysteresis band (a hot unit and a cool unit could open and resolve the same alert alternately), so multi-unit machines require revisiting the key before they are supported.
 
 ## Alternatives Considered
 

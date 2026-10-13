@@ -22,7 +22,7 @@ The event envelope already carries `schemaVersion`, and the sensor simulator is 
 
 **Partition key.** The producer keys telemetry events by `machineId`. The latest-state projection maintains exactly one row per machine, so keying by machine keeps all observations for one machine in a single partition and therefore in one consumer's ordered stream. `sensorId` was rejected as a key because it does not provide that guarantee once a machine has more than one sensor.
 
-**Offset commit.** `spring.kafka.consumer.enable-auto-commit` is `false` and `spring.kafka.listener.ack-mode` is `record`. The listener method carries the `@Transactional` boundary, so the database transaction commits before the listener returns and the offset is committed after it returns, as ADR-003 requires.
+**Offset commit.** `spring.kafka.consumer.enable-auto-commit` is `false` and `spring.kafka.listener.ack-mode` is `record`. `TelemetryService.recordTelemetry(...)`, called synchronously from the listener, carries the `@Transactional` boundary, so the database transaction commits before the listener returns and the offset is committed after it returns, as ADR-003 requires.
 
 **Failure classification (Initial Phase 1 baseline):** Failures were initially split into two classes:
 

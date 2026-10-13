@@ -16,7 +16,7 @@ Discarding permanently invalid messages is unacceptable in production because:
 1. **Dead Letter Topic (DLT) Provisioning:**
    - Establish a dedicated Dead Letter Topic following platform kebab-case conventions: `telemetry-events-dlt`.
    - Provisioned with the same partition count (3 partitions) and replication factor (1) as the primary topic.
-   - *Destination Resolver:* Spring Kafka's default `DeadLetterPublishingRecoverer` appends `.DLT` (e.g. `telemetry-events.DLT`). We explicitly configure a custom destination resolver function `(record, exception) -> new TopicPartition("telemetry-events-dlt", record.partition())` to enforce uniform lowercase hyphenated naming across all platform topics.
+   - *Destination Resolver:* No custom resolver is configured. In Spring Kafka 3.x the default `DeadLetterPublishingRecoverer` resolver is `(record, exception) -> new TopicPartition(record.topic() + "-dlt", record.partition())`, which already yields the lowercase hyphenated name `telemetry-events-dlt` and preserves the original partition. (Spring Kafka 2.x used the `.DLT` suffix; pin the resolver explicitly if a future upgrade changes the default.)
 
 2. **Error Recovery Mechanism (`DeadLetterPublishingRecoverer`):**
    - Configure a `DeadLetterPublishingRecoverer` wired to `KafkaTemplate<Object, Object>`.
@@ -32,7 +32,7 @@ Discarding permanently invalid messages is unacceptable in production because:
 
 3. **Retry Policy and Backoff (`DefaultErrorHandler`):**
    - **Non-retryable exceptions (Immediate DLT dispatch with 0 retries):**
-     - `InvalidTelemetryEventException`: Permanent payload validation errors (e.g. unknown `eventType`, unsupported `schemaVersion`, negative temperatures below absolute zero, missing required envelope attributes).
+     - `InvalidTelemetryEventException`: Permanent payload validation errors (e.g. unknown `eventType`, unsupported `schemaVersion`, missing required envelope attributes or measurements). Value-range checks (e.g. physically impossible readings) are not implemented..
      - Deserialization exceptions (`DeserializationException`): Malformed JSON, unparseable byte streams.
      - `MessageConversionException`: Data type binding failures.
    - **Retryable exceptions (Transient):**
@@ -53,6 +53,7 @@ Discarding permanently invalid messages is unacceptable in production because:
 - Poison pills no longer stall partition consumption; telemetry for healthy sensors on the same partition continues processing unimpeded.
 - Corrupted messages are preserved durably in Kafka for operator inspection, triage, and subsequent controlled replay.
 - Network overhead: publishing to DLT consumes broker bandwidth and disk storage. Retention on DLT topics (`log.retention.hours=168`) must be managed in operations.
+- **Known limitation — deserialization failures:** for a record that failed in `ErrorHandlingDeserializer`, the recoverer publishes the original raw `byte[]`. The application `KafkaTemplate` uses `JsonSerializer` for values, which serializes a `byte[]` as a base64 JSON string, so the DLT copy of a malformed record is not byte-identical to the original. A `ByteArraySerializer` (or `DelegatingByTypeSerializer`) template for the recoverer would be required to preserve raw bytes.
 
 ## Alternatives Considered
 

@@ -19,7 +19,7 @@ Pushing metrics from application threads to an external metrics service can add 
    - Instrument custom domain metrics inside `TelemetryMetrics.java`:
      - `telemetry_ingested_total` (Counter): Incremented upon every successfully processed telemetry message.
      - `telemetry_duplicates_total` (Counter with `reason` tag): Incremented when duplicate telemetry is detected and short-circuited (`reason="source_message_id"` or `reason="event_id"`).
-     - `telemetry_processing_duration_seconds` (Timer): Measures database persistence and state projection execution time, publishing p50, p95, and p99 percentiles.
+     - `telemetry_processing_time_seconds` (Timer): Measures database persistence and state projection execution time, publishing p50, p95, and p99 percentiles.
 
 2. **Pull-Based Metrics Scraping via Prometheus:**
    - Expose metrics at the standard `/actuator/prometheus` endpoint.

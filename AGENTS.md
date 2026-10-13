@@ -34,7 +34,7 @@ Phases 1, 2, 3, and 4 are **completed**:
 - **Idempotency & Concurrency:** Delivered via Flyway V2 composite constraints `(sensor_id, source_message_id)` and Flyway V3 JPA `@Version` optimistic locking (ADR-005, ADR-008).
 - **Operational Alerting & Hysteresis:** Delivered via `AlertService`, `AlertRepository`, `AlertController`, Flyway V4 composite indexes, Flyway V5 partial unique index on open alerts, anti-spam row deduplication, out-of-order evaluation suppression, and noise suppression hysteresis deadbands (clearing at 85.0°C / 0.60g) (ADR-010).
 - **Redis Deferred (Design Decision):** Redis caching and distributed locking were evaluated during Phase 2. PostgreSQL optimistic locking (`@Version`) cleanly eliminated lost updates on the projection table without the operational overhead, cache invalidation races, and split-brain risks of introducing a Redis cluster.
-- **Observability Stack:** Fully delivered via Spring Boot Actuator, custom Micrometer metrics (`telemetry_ingested_total`, `telemetry_duplicates_total`, `telemetry_processing_duration_seconds`), Prometheus pull scraping (:9090), and pre-provisioned Grafana dashboards (:3000) (ADR-009).
+- **Observability Stack:** Fully delivered via Spring Boot Actuator, custom Micrometer metrics (`telemetry_ingested_total`, `telemetry_duplicates_total`, `telemetry_processing_time_seconds`), Prometheus pull scraping (:9090), and pre-provisioned Grafana dashboards (:3000) (ADR-009).
 - **Live AWS Cloud Deployment:** Running on AWS EC2 (`<EC2_PUBLIC_IP>`) with multi-stage Docker build, Prometheus, Grafana, and Python sensor simulator running continuously (ADR-011).
 - **Verification:** Automated JUnit 5 unit and Testcontainers-backed integration test suite executing on every commit in GitHub Actions CI.
 
@@ -47,7 +47,7 @@ Phases 1, 2, 3, and 4 are **completed**:
 - Treat telemetry events as immutable facts. Maintain latest machine state separately as a query-optimized projection.
 - Make source-message identity, internal-event identity, source/platform timestamps, schema/version expectations, and error handling explicit before implementing producers or consumers.
 - Validate telemetry sensor identity against platform-owned sensor configuration. Resolve the machine from that relationship; never copy an untrusted producer-supplied machine ID into an internal event.
-- The consumer boundary is: validate message -> check composite natural key deduplication -> begin database transaction -> persist immutable telemetry -> update latest-state projection -> evaluate alerting rules (anti-spam deduplication & hysteresis) -> commit database transaction -> acknowledge Kafka message. Telemetry persistence, state projection, and alert evaluation share one database consistency boundary.
+- The consumer boundary is: validate message -> begin database transaction -> check composite natural key deduplication -> persist immutable telemetry -> update latest-state projection -> evaluate alerting rules (anti-spam deduplication & hysteresis) -> commit database transaction -> acknowledge Kafka message. Telemetry persistence, state projection, and alert evaluation share one database consistency boundary.
 - At-least-once delivery is paired with application and database-level idempotency (Flyway V2) and optimistic concurrency control (Flyway V3, ADR-008). Poison pills are quarantined to `telemetry-events-dlt` (ADR-006).
 
 ## Development phases
