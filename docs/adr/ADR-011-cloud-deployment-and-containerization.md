@@ -34,7 +34,8 @@ The deployment needed to satisfy the following requirements:
    - Ingress ports opened for operational access:
      - Port 22: SSH (keypair authentication via `industrial-key.pem`)
      - Port 8080: Spring Boot REST API & Actuator endpoints
-     - Port 3000: Grafana visualization dashboard (`admin` / `admin`)
+     - Port 3000: Grafana visualization dashboard (admin password supplied via `GRAFANA_ADMIN_PASSWORD` in a git-ignored `.env` on the host; Compose refuses to start without it)
+   - All ingress rules are restricted to the operator's IP (`/32`) rather than `0.0.0.0/0`: the REST API has no authentication (e.g. alerts can be acknowledged by any caller), and Grafana admin access allows adding data sources that reach services on the internal Docker network.
    - Services talk to each other over the Docker Compose bridge network (`postgres:5432`, `mosquitto:1883`, `kafka:29092`, `prometheus:9090`). Note that `docker-compose.yml` still publishes 5432, 1883, 9092 and 9090 on the host for local development, so on EC2 the security group is the only control keeping them private; Mosquitto also allows anonymous clients. A cloud-specific override that removes these host port mappings is the safer configuration.
 
 ## Alternatives Considered
