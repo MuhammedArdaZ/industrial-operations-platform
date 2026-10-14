@@ -114,9 +114,10 @@ You can spin up the full pipeline locally (PostgreSQL, Mosquitto MQTT broker, Ap
 
 #### Step A: Start Infrastructure, Backend & Observability Containers
 
-From the project root:
+From the project root, create your local environment file and set `GRAFANA_ADMIN_PASSWORD` (the `.env` file is git-ignored; Compose refuses to start if the variable is missing):
 
 ```bash
+cp .env.example .env
 docker compose up -d
 ```
 
@@ -132,7 +133,7 @@ This boots the entire operational stack:
 
 #### Step B: Access Observability & Dashboards
 
-- **Grafana Dashboard:** Open [`http://localhost:3000`](http://localhost:3000) (Credentials: `admin` / `admin`, local development only).  
+- **Grafana Dashboard:** Open [`http://localhost:3000`](http://localhost:3000) (User `admin`, password from `GRAFANA_ADMIN_PASSWORD` in your `.env`).  
   Navigate to **Dashboards** → **Industrial Operations - Telemetry Dashboard** to observe live ingestion rates, duplicate drops, p95/p99 latency percentiles, and JVM health.
 - **Prometheus Targets:** Open [`http://localhost:9090/targets`](http://localhost:9090/targets) to verify the `industrial-backend` scrape target is in state `UP`.
 
@@ -185,9 +186,9 @@ The platform is deployed live on an **AWS EC2** instance (`m7i-flex.large`, 2 vC
 | **Spring Boot Actuator** | `http://<EC2_PUBLIC_IP>:8080/actuator/health` | Subsystem health status (`UP`) |
 | **Prometheus Metrics** | `http://<EC2_PUBLIC_IP>:8080/actuator/prometheus` | Domain counters & latency percentiles |
 | **Operational Alerts API** | `http://<EC2_PUBLIC_IP>:8080/api/v1/alerts` | Active threshold alerts |
-| **Grafana Dashboard** | `http://<EC2_PUBLIC_IP>:3000` | `admin` / `admin` (Real-time telemetry dashboard) |
+| **Grafana Dashboard** | `http://<EC2_PUBLIC_IP>:3000` | Real-time telemetry dashboard (password set via `GRAFANA_ADMIN_PASSWORD` on the host, never committed) |
 
-*(Note: During initial cloud provisioning, the active public IP was `13.48.84.116`. Replace `<EC2_PUBLIC_IP>` with the current public IPv4 address of the EC2 instance).*
+*(Note: Replace `<EC2_PUBLIC_IP>` with the current public IPv4 address of the EC2 instance.)*
 
 The cloud deployment runs the complete stack via Docker Compose: Mosquitto MQTT, Kafka KRaft, PostgreSQL 16 (Flyway V1–V5), Spring Boot multi-stage build, Prometheus, Grafana, and the Python sensor simulator streaming live telemetry continuously.
 
