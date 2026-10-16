@@ -1,5 +1,6 @@
 package com.industrialoperations.platform.telemetry;
 
+import java.time.Duration;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -12,12 +13,15 @@ import org.springframework.stereotype.Component;
 public class KafkaTelemetryProducer implements TelemetryEventPublisher {
     private final String topic;
     private final KafkaTemplate<String, TelemetryReceivedEvent> kafkaTemplate;
+    private final Duration publishTimeout;
 
     public KafkaTelemetryProducer(
             KafkaTemplate<String, TelemetryReceivedEvent> kafkaTemplate,
-            @Value("${platform.kafka.telemetry-topic}") String topic) {
+            @Value("${platform.kafka.telemetry-topic}") String topic,
+            @Value("${platform.kafka.publish-timeout:10s}") Duration publishTimeout) {
         this.kafkaTemplate = kafkaTemplate;
         this.topic = topic;
+        this.publishTimeout = publishTimeout;
     }
 
     @Override
@@ -25,7 +29,8 @@ public class KafkaTelemetryProducer implements TelemetryEventPublisher {
         String partitionKey = telemetryReceivedEvent.source().machineId().toString();
 
         try {
-            kafkaTemplate.send(topic, partitionKey, telemetryReceivedEvent).get(10, TimeUnit.SECONDS);
+            kafkaTemplate.send(topic, partitionKey, telemetryReceivedEvent)
+                    .get(TimeUnit.MILLISECONDS.convert(publishTimeout), TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new TelemetryPublishException("Kafka message sending interrupted [sourceMessageId=%s]"

@@ -30,6 +30,7 @@ server:
 platform:
   kafka:
     telemetry-topic: ${KAFKA_TELEMETRY_TOPIC:telemetry-events}
+    publish-timeout: ${KAFKA_PUBLISH_TIMEOUT:10s}
   mqtt:
     enabled: ${MQTT_ENABLED:true}
     broker-url: ${MQTT_BROKER_URL:tcp://localhost:1883}
