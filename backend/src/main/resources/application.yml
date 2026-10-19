@@ -11,6 +11,7 @@ spring:
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
       properties:
         spring.json.add.type.headers: false
+        max.block.ms: ${KAFKA_MAX_BLOCK_MS:5000}
     consumer:
       group-id: ${KAFKA_CONSUMER_GROUP_ID:industrial-operations-telemetry}
       auto-offset-reset: earliest
