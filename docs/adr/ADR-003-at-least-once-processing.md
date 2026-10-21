@@ -16,6 +16,7 @@ Idempotent processing, retries, DLT, replay, and comprehensive failure semantics
 - Duplicate delivery remains possible after failures and must be considered explicitly in Phase 2.
 - The project does not make unsupported exactly-once claims.
 - A narrow Phase 1 Testcontainers baseline verifies the critical telemetry path; Phase 3 expands coverage and runs it in CI.
+- This ADR covers the consumer side only. The ingress side (MQTT -> Kafka) gets the equivalent guarantee in ADR-012: the MQTT message is acknowledged only after Kafka confirms the publish.
 
 ## Alternatives considered
 

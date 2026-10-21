@@ -102,6 +102,41 @@ This document records the empirical results of our distributed systems failure, 
 
 ---
 
+## Experiment 8: Kafka Outage During Ingestion (MQTT Acknowledgement Boundary)
+
+- **Problem:** `KafkaTelemetryProducer.publish` returned without awaiting the `send(...)` future, so Paho sent `PUBACK` before Kafka had accepted the record. A Kafka outage meant acknowledged-but-lost telemetry.
+- **Solution:** Await the Kafka acknowledgement with a bounded timeout (`KAFKA_PUBLISH_TIMEOUT`, default `10s`) and rethrow failures as `TelemetryPublishException`, so `messageArrived` fails, no `PUBACK` is sent, and Mosquitto redelivers to the persistent session after reconnect (ADR-012).
+- **Test / Experiment:**
+  - Unit: `KafkaTelemetryProducerTest` covers publishing with the `machineId` partition key, a broker failure (wrapped with the original cause preserved), a timeout, an interrupt (flag restored), and an ack that arrives within the configured timeout.
+  - Manual, full Compose stack with the simulator running: confirm the Grafana `telemetry_ingested_total` rate is rising, stop the Kafka container mid-run, wait, then start it again.
+- **Result, first run (FAILED to recover):** Messages were no longer acknowledged while Kafka was down, as intended. But after Kafka returned, ingestion never resumed: the MQTT client went through ~130 s connection-lost/reconnect cycles indefinitely. A thread dump showed a deadlock between Paho's own threads:
+  - `MQTT Call` (callback thread) was in `connectComplete -> MqttClient.subscribe -> waitForCompletion`, waiting for `SUBACK`.
+  - `MQTT Rec` (receiver thread) was in `CommsCallback.messageArrived`, blocked because the persistent-session backlog had filled Paho's inbound queue (10 messages), which only `MQTT Call` drains.
+  - Neither thread could proceed; keepalive timeout broke the connection, and the reconnect repeated the same pattern. Kafka recovering did not help, because nothing was blocked on Kafka.
+- **Fix:** Switch to `MqttAsyncClient` and subscribe with an `IMqttActionListener`, so `connectComplete` returns immediately (ADR-012).
+- **Result after fix:** **PASSED.** Ingestion resumed within seconds of Kafka restarting. `telemetry_duplicates_total` rose by 4: records that had timed out while still in the producer buffer were delivered once Kafka returned, and Mosquitto also redelivered the unacknowledged MQTT messages. The `(sensor_id, source_message_id)` constraint (ADR-005) rejected the second copies, so no telemetry was lost or stored twice.
+
+---
+
+## Experiment 9: Unresponsive Kafka Broker & Producer `max.block.ms`
+
+- **Problem:** `KafkaProducer.send()` blocks the caller (the Paho callback thread) while fetching topic metadata, for up to `max.block.ms` (default 60 s). This happens before a future exists, so the publish timeout cannot bound it.
+- **Solution:** Set `max.block.ms` to `${KAFKA_MAX_BLOCK_MS:5000}`, bounding the worst-case stall per message to about `max.block.ms + publish-timeout` ≈ 15 s (ADR-012).
+- **Test / Experiment:** Full Compose stack with the simulator running; `docker pause industrial-kafka`, observe the backend logs, then `docker unpause industrial-kafka`. (`docker pause` keeps the container in Docker DNS. A stopped container drops out of DNS, which is a different failure, see the notes below.)
+- **Result:**
+  - Before: each message failed with `Topic telemetry-events not present in metadata after 60000 ms`, giving a 61.3 s reject/reconnect cycle.
+  - After: the same failure after 5000 ms, giving a 6.3 s cycle (the extra 1.3 s is Paho reconnecting). The `MQTT connection lost` log comes from the exception thrown in `messageArrived` (the intended rejection), not from keepalive.
+  - After unpausing, ingestion resumed with **0 duplicates**. A metadata-phase failure never enters the producer buffer, so the MQTT redelivery is the only copy (compare Experiment 8, where buffered records produced 4 duplicates).
+
+### Notes from Experiments 8 and 9
+
+- `docker compose start/restart <service>` also starts the service's `depends_on` chain (simulator -> backend -> kafka). Use the plain `docker` CLI to break a single container.
+- If the `kafka` hostname cannot be resolved at startup, the backend fails fast with `No resolvable bootstrap urls`. Compose defines no `restart:` policy, so it stays down until restarted manually.
+- `MqttTelemetryClient` connects in `@PostConstruct`, so it starts processing the MQTT backlog about 40 s before the application reports `Started` (Spring logs singleton-lock warnings). Starting it on `ApplicationReadyEvent` or via `SmartLifecycle` would fix this.
+- `KafkaAdmin` topic creation adds about 40 s to startup when the broker is unresponsive.
+
+---
+
 ## Simulator Chaos Injection Controls
 
 The Python sensor simulator (`simulator/sensor_simulator.py`) includes dedicated chaos injection flags:
@@ -119,7 +154,8 @@ The Python sensor simulator (`simulator/sensor_simulator.py`) includes dedicated
 
 1. **Ingress Boundary & MQTT Publisher Failure:**
    - Under Eclipse Paho MQTT QoS 1, the client sends `PUBACK` when `messageArrived` returns normally. `MqttTelemetryClient` rethrows unexpected runtime failures so the message is not acknowledged (Paho drops the connection and the broker redelivers to the persistent session, `cleanSession=false`).
-   - **Gap:** `KafkaTelemetryProducer.publish` calls `kafkaTemplate.send(...)` without awaiting the returned future. A broker-side failure therefore surfaces asynchronously, after `messageArrived` has already returned and `PUBACK` has been sent, so the MQTT message is acknowledged and the telemetry is lost. Only failures thrown synchronously by `send` (e.g. metadata timeout after `max.block.ms`) currently prevent the acknowledgement. Closing this gap requires awaiting the send result (with a bounded timeout) before returning from the MQTT callback.
+   - **Resolved (ADR-012):** `KafkaTelemetryProducer.publish` now waits for the Kafka acknowledgement (`KAFKA_PUBLISH_TIMEOUT`, default `10s`) and `send()` blocks for at most `KAFKA_MAX_BLOCK_MS` (default `5000`), so `PUBACK` is sent only after Kafka has accepted the record. Previously the send future was not awaited and a Kafka outage lost acknowledged telemetry (Experiments 8 and 9).
+   - **Remaining limits:** messages are processed one at a time on the Paho callback thread, so throughput is bounded by publish latency (manual acknowledgements are the scaling path). Mosquitto runs without persistence, so a Mosquitto restart during a Kafka outage loses the unacknowledged backlog.
    - Kafka producer uses `acks=all` and default Kafka 3.x producer idempotence (`enable.idempotence=true`).
    - Invalid MQTT messages (bad topic, malformed JSON, missing fields, unregistered sensor) are logged and discarded at the ingestion boundary. They never reach Kafka or the DLT and are not counted by a metric.
 2. **Infrastructure Outage vs. DLT Overflow:**
