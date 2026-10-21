@@ -75,7 +75,7 @@ This document records the empirical results of our distributed systems failure, 
 - **Problem:** Quarantined messages in DLT require operator-initiated reprocessing after bug fixes without causing recursive replay ping-pong loops.
 - **Solution:** `TelemetryDltReplayService` (ADR-007) with isolated consumer group (`telemetry-dlt-replay-group`), synchronous commit, and batch execution limits.
 - **Test / Experiment:** `shouldReplayMessagesFromDltAndProcessSuccessfully` in `KafkaTelemetryPipelineIntegrationTest.java`:
-  1. Quarantined message (e.g. from transient database downtime or resolved schema bug) present in `telemetry-events-dlt`.
+  1. Quarantined message (e.g. from a since-resolved schema bug) present in `telemetry-events-dlt`.
   2. `replay(maxRecords)` called with batch limit.
   3. Message re-injected into primary topic `telemetry-events` and processed into PostgreSQL.
   4. Second replay call returns 0 (offset committed).
@@ -137,6 +137,32 @@ This document records the empirical results of our distributed systems failure, 
 
 ---
 
+## Experiment 10: PostgreSQL Outage & Consumer Retry Classification
+
+- **Problem:** `DefaultErrorHandler` treated every failure except `InvalidTelemetryEventException` the same way: `FixedBackOff(1000L, 2L)`, then `telemetry-events-dlt`. A database outage is not the message's fault, but valid telemetry already in Kafka was dead-lettered, needed manual replay, and broke per-machine ordering (later readings were processed before the replayed one).
+- **Solution:** Classify transient database failures (`CannotCreateTransactionException`, `DataAccessResourceFailureException`) separately with `DefaultErrorHandler.setBackOffFunction`: exponential back-off (1 s, ×2, capped at 30 s per interval, no total limit), never dead-lettered. The consumer holds its partition position and resumes on its own when PostgreSQL returns (ADR-006).
+
+### 10a: Outage with live MQTT traffic
+
+- **Test / Experiment:** Full Compose stack with the simulator running (`docker compose --profile simulator up -d`); `docker pause industrial-postgres` for 73 s, then `docker unpause industrial-postgres`.
+- **Result:** `telemetry-events-dlt` stayed at offset 0. The failure surfaced on the Paho callback thread, not the consumer: `MqttIngestionAdapter` resolves the machine through `SensorService.findSensor`, which needs the database. After Hikari's 30 s `connectionTimeout` it failed with `CannotCreateTransactionException`, so no `PUBACK` was sent and Mosquitto kept the message for redelivery (ADR-012). Nothing new reached Kafka, so the consumer had nothing to dead-letter.
+- **Takeaway:** this protection is accidental. It only exists because the ingestion lookup hits the database. Caching sensor configuration would remove it, and records already in Kafka (consumer lag, a backlog after a Kafka outage, a consumer restart) are not protected at all. 10b tests that case.
+
+### 10b: Outage with records already in Kafka
+
+- **Test / Experiment:** Same stack; `docker pause industrial-postgres`, then one existing event was re-produced directly to `telemetry-events` with `kafka-console-producer.sh` (bypassing MQTT). Automated as `TelemetryDatabaseOutageIntegrationTest`, which pauses the Testcontainers PostgreSQL container, sends a valid event, asserts the DLT stays empty for a 15 s outage, then asserts the telemetry is persisted after unpausing. The test lowers Hikari `connection-timeout` to 1 s and sets pgjdbc `socketTimeout` to 2 s so it fails fast.
+- **Result before fix (FAILED):** the consumer thread failed three times, each after the 30 s Hikari `connectionTimeout` (13:35:46, 13:36:17, 13:36:48), and the record reached `telemetry-events-dlt` (offset 0 → 1) about 92 s after the first attempt: 3 attempts × 30 s + 2 × 1 s back-off. The earlier claim that an outage "longer than 2 seconds" dead-letters messages ignored the connection timeout, which dominates. In the integration test, the same record was dead-lettered within about 5 s.
+- **Result after fix (integration test, PASSED):** retries continued at growing intervals (about 1, 2, 4 and 8 s between attempts, plus the 1 s connection timeout), the DLT stayed empty, and the telemetry was written once PostgreSQL returned. Both classified exception shapes occurred in one run: the first attempt used a pooled connection and failed mid-query (`SQLState 08006`, translated to `DataAccessResourceFailureException`); later attempts failed while opening the transaction (`SQLState 08003`, `CannotCreateTransactionException`).
+
+### Notes from Experiment 10
+
+- Each retry is a new `poll()` (the error handler seeks back to the failed record), so unlimited retries do not exceed `max.poll.interval.ms` (300 s). What must stay below it is one attempt plus one back-off interval: about 30 s + 30 s in production. Without the 30 s `maxInterval` cap, exponential growth would eventually get the consumer evicted from the group.
+- A single listener thread consumes all three partitions, so an outage stops all of them. This is acceptable because every partition writes to the same PostgreSQL instance; a partition-specific failure would need a different strategy.
+- The classification is deliberately narrow. Treating a permanent error as transient would retry it forever and stall the consumer, which is worse than dead-lettering a valid record that replay can recover.
+- Production sets no pgjdbc `socketTimeout`. A paused or partitioned database never closes its sockets, so a query already running on a borrowed connection can hang indefinitely instead of failing (see Known Gaps).
+
+---
+
 ## Simulator Chaos Injection Controls
 
 The Python sensor simulator (`simulator/sensor_simulator.py`) includes dedicated chaos injection flags:
@@ -159,6 +185,7 @@ The Python sensor simulator (`simulator/sensor_simulator.py`) includes dedicated
    - Kafka producer uses `acks=all` and default Kafka 3.x producer idempotence (`enable.idempotence=true`).
    - Invalid MQTT messages (bad topic, malformed JSON, missing fields, unregistered sensor) are logged and discarded at the ingestion boundary. They never reach Kafka or the DLT and are not counted by a metric.
 2. **Infrastructure Outage vs. DLT Overflow:**
-   - With `FixedBackOff(1000L, 2L)`, an unexpected PostgreSQL outage lasting longer than 2 seconds causes uncommitted messages to be routed to `telemetry-events-dlt`. For high-volume production deployments, container pausing (`CommonContainerStoppingErrorHandler`) is recommended to halt partition consumption instead of accumulating valid telemetry in DLT.
+   - **Resolved (ADR-006, Experiment 10):** transient database failures (`CannotCreateTransactionException`, `DataAccessResourceFailureException`) are retried with an exponential back-off capped at 30 s per interval and are never dead-lettered. Previously, with `FixedBackOff(1000L, 2L)`, a PostgreSQL outage longer than about 92 s (three 30 s connection timeouts plus back-off) routed valid telemetry already in Kafka to `telemetry-events-dlt`.
+   - **Remaining limits:** no pgjdbc `socketTimeout` is configured, so a query in flight when the database freezes can block the consumer thread indefinitely. Other unclassified failures still go to the DLT after two retries.
 3. **Security & Access Control:**
    - DLT replay and alert acknowledgment endpoints are currently unauthenticated in this demonstration release. Production deployments require JWT authentication, role-based access control (RBAC), and recording `acknowledged_by` operator identities.
