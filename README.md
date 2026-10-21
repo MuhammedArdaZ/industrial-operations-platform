@@ -58,6 +58,7 @@ The platform ingests high-frequency telemetry from factory floor sensors via MQT
 - **[ADR-009: Observability and Metrics](docs/adr/ADR-009-metrics-and-observability.md)** — Pull-based metrics scraping via Prometheus, Micrometer domain counters/timers, Actuator health endpoints, and pre-provisioned Grafana dashboards.
 - **[ADR-010: Stateful Alerting Engine and Hysteresis](docs/adr/ADR-010-alerting-engine-and-hysteresis.md)** — In-pipeline operational threshold evaluation, anti-spam alert row deduplication, noise suppression hysteresis deadbands (clearing at 85.0°C / 0.60g), and operator lifecycle management via Flyway V4 composite indexes and Flyway V5 partial unique index.
 - **[ADR-011: Cloud Deployment Architecture & Container Orchestration](docs/adr/ADR-011-cloud-deployment-and-containerization.md)** — Production-like deployment on AWS EC2 (`m7i-flex.large`) using multi-stage Docker build and Docker Compose orchestration with dynamic public IP management.
+- **[ADR-012: Acknowledge MQTT Only After Kafka Publish Confirmation](docs/adr/ADR-012-mqtt-ack-after-kafka-publish.md)** — Closes the ingress loss window: the MQTT `PUBACK` is sent only after Kafka acknowledges the record, with bounded waits (`KAFKA_PUBLISH_TIMEOUT`, `KAFKA_MAX_BLOCK_MS`) and an asynchronous MQTT subscribe that removes a Paho callback-thread deadlock on reconnect.
 
 ---
 
@@ -131,6 +132,13 @@ This boots the entire operational stack:
 
 *(Optional: To run the Spring Boot backend locally from source instead of in Docker, run `docker compose up -d postgres mosquitto kafka prometheus grafana` and then `./mvnw spring-boot:run` in `backend/`).*
 
+Ingress failure handling can be tuned with environment variables (ADR-012):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `KAFKA_PUBLISH_TIMEOUT` | `10s` | How long ingestion waits for the Kafka acknowledgement before rejecting the MQTT message (no `PUBACK`, so the broker redelivers). |
+| `KAFKA_MAX_BLOCK_MS` | `5000` | How long `KafkaProducer.send()` may block on metadata or a full buffer when Kafka is unreachable. |
+
 #### Step B: Access Observability & Dashboards
 
 - **Grafana Dashboard:** Open [`http://localhost:3000`](http://localhost:3000) (User `admin`, password from `GRAFANA_ADMIN_PASSWORD` in your `.env`).  
@@ -203,6 +211,7 @@ The cloud deployment runs the complete stack via Docker Compose: Mosquitto MQTT,
   - [x] Dead Letter Topic & Poison Pill resilience (`telemetry-events-dlt`, `FixedBackOff`, ADR-006)
   - [x] Controlled replay of failed DLT events (`TelemetryDltReplayService`, ADR-007)
   - [x] Concurrency & optimistic locking (`@Version` on `MachineLatestState`, Flyway V3, ADR-008)
+  - [x] MQTT acknowledgement only after Kafka publish confirmation, plus Paho reconnect deadlock fix (ADR-012)
   - [x] Distributed failure matrix & recovery experiments (consumer downtime buffering, poison pill quarantine, out-of-order clock rejection, concurrent race tests; [docs/failure-scenarios.md](docs/failure-scenarios.md))
 - [x] **Phase 3 — Production Readiness:**
   - [x] Full application containerization & Docker Compose orchestration (`backend/Dockerfile`, dual Kafka listeners)

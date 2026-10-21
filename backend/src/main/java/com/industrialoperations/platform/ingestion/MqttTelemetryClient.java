@@ -1,10 +1,10 @@
 package com.industrialoperations.platform.ingestion;
 
-import java.nio.charset.StandardCharsets;
-
+import org.eclipse.paho.client.mqttv3.IMqttActionListener;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
+import org.eclipse.paho.client.mqttv3.IMqttToken;
+import org.eclipse.paho.client.mqttv3.MqttAsyncClient;
 import org.eclipse.paho.client.mqttv3.MqttCallbackExtended;
-import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
@@ -33,7 +33,7 @@ public class MqttTelemetryClient implements MqttCallbackExtended {
 
     private final MqttIngestionAdapter ingestionAdapter;
 
-    private MqttClient client;
+    private MqttAsyncClient client;
 
     public MqttTelemetryClient(MqttProperties mqttProperties, MqttIngestionAdapter ingestionAdapter) {
         this.mqttProperties = mqttProperties;
@@ -42,7 +42,7 @@ public class MqttTelemetryClient implements MqttCallbackExtended {
 
     @PostConstruct
     void start() throws MqttException {
-        client = new MqttClient(mqttProperties.brokerUrl(), mqttProperties.clientId(), new MemoryPersistence());
+        client = new MqttAsyncClient(mqttProperties.brokerUrl(), mqttProperties.clientId(), new MemoryPersistence());
         client.setCallback(this);
 
         MqttConnectOptions options = new MqttConnectOptions();
@@ -51,7 +51,7 @@ public class MqttTelemetryClient implements MqttCallbackExtended {
 
         log.info("Connecting to MQTT broker [{}] as client [{}]",
                 mqttProperties.brokerUrl(), mqttProperties.clientId());
-        client.connect(options);
+        client.connect(options).waitForCompletion();
     }
 
     @PreDestroy
@@ -61,7 +61,7 @@ public class MqttTelemetryClient implements MqttCallbackExtended {
         }
         try {
             if (client.isConnected()) {
-                client.disconnect();
+                client.disconnect().waitForCompletion();
             }
             client.close();
         } catch (MqttException e) {
@@ -87,7 +87,7 @@ public class MqttTelemetryClient implements MqttCallbackExtended {
         } catch (InvalidMqttMessageException e) {
             log.warn("Discarding invalid MQTT message on topic [{}]", topic, e);
         } catch (RuntimeException e) {
-            log.error("Failed to process MQTT message: [{}]",topic, e);
+            log.error("Failed to process MQTT message: [{}]", topic, e);
             throw e;
         }
     }
@@ -100,11 +100,22 @@ public class MqttTelemetryClient implements MqttCallbackExtended {
 
     private void subscribe() {
         try {
-            client.subscribe(mqttProperties.topicFilter(), mqttProperties.qos());
-            log.info("Subscribed to MQTT topic filter [{}] with QoS {}",
-                    mqttProperties.topicFilter(), mqttProperties.qos());
+            client.subscribe(mqttProperties.topicFilter(), mqttProperties.qos(), null, new IMqttActionListener() {
+                @Override
+                public void onSuccess(IMqttToken asyncActionToken) {
+                    log.info("Subscribed to MQTT topic filter [{}] with QoS {}",
+                            mqttProperties.topicFilter(), asyncActionToken.getGrantedQos()[0]);
+                }
+
+                @Override
+                public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
+                    log.error("Subscribe request failed while sending to MQTT topic filter [{}] with QoS {}",
+                            mqttProperties.topicFilter(), mqttProperties.qos(), exception);
+                }
+            });
         } catch (MqttException e) {
-            log.error("Failed to subscribe to MQTT topic filter [{}]", mqttProperties.topicFilter(), e);
+            log.error("Failed to send subscribe request to MQTT topic filter [{}]", mqttProperties.topicFilter(), e);
         }
     }
+
 }
