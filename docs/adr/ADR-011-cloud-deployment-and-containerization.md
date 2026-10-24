@@ -12,7 +12,7 @@ The deployment needed to satisfy the following requirements:
 ## Decision
 
 1. **Deploy via Docker Compose on AWS EC2:**
-   - Provision an **AWS EC2** instance (`m7i-flex.large`, 2 vCPU, 8 GB RAM, 20 GB gp3 storage running Ubuntu 24.04 LTS).
+   - Provision an **AWS EC2** instance (`m7i-flex.large`, 2 vCPU, 8 GB RAM, 20 GB gp3 storage running Ubuntu 26.04 LTS).
    - Orchestrate the entire platform stack using Docker Compose:
      - `industrial-postgres` (PostgreSQL 16)
      - `industrial-mosquitto` (Eclipse Mosquitto MQTT broker)

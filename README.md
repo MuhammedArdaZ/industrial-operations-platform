@@ -187,7 +187,7 @@ curl -s -X POST http://localhost:8080/api/v1/alerts/<ALERT_ID>/acknowledge | jq 
 
 ### 🌐 Live Cloud Deployment (AWS EC2)
 
-The platform is deployed live on an **AWS EC2** instance (`m7i-flex.large`, 2 vCPU, 8 GB RAM, Ubuntu 24.04). In accordance with ADR-011, dynamic public addressing is used (Elastic IP is avoided to prevent idle billing charges when stopped):
+The platform is deployed live on an **AWS EC2** instance (`m7i-flex.large`, 2 vCPU, 8 GB RAM, Ubuntu 26.04). In accordance with ADR-011, dynamic public addressing is used (Elastic IP is avoided to prevent idle billing charges when stopped):
 
 | Service | Public Endpoint | Credentials / Purpose |
 |---|---|---|
