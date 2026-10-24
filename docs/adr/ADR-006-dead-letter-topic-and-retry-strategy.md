@@ -35,14 +35,20 @@ Discarding permanently invalid messages is unacceptable in production because:
      - `InvalidTelemetryEventException`: Permanent payload validation errors (e.g. unknown `eventType`, unsupported `schemaVersion`, missing required envelope attributes or measurements). Value-range checks (e.g. physically impossible readings) are not implemented..
      - Deserialization exceptions (`DeserializationException`): Malformed JSON, unparseable byte streams.
      - `MessageConversionException`: Data type binding failures.
-   - **Retryable exceptions (Transient):**
-     - Transient database errors, lock acquisition timeouts, broker disconnects.
-     - Retry with fixed backoff: 3 attempts with 1-second interval (`FixedBackOff(1000L, 2L)` - initial attempt + 2 retries).
+   - **Transient database failures (retried until the database returns, never dead-lettered):**
+     - `CannotCreateTransactionException` (no connection when the transaction begins) and `DataAccessResourceFailureException` (Spring's translation of a connection lost mid-transaction).
+     - Selected with `DefaultErrorHandler.setBackOffFunction`, which returns an `ExponentialBackOff`: initial interval 1 s, multiplier 2, `maxInterval` 30 s, `maxElapsedTime` `Long.MAX_VALUE`. The function receives the listener exception with only `ListenerExecutionFailedException` unwrapped, so it matches these Spring types directly.
+     - The types are Spring's own, so the classification does not depend on the JDBC driver or the connection pool.
+   - **Other retryable exceptions:**
+     - Lock acquisition timeouts, optimistic locking conflicts, and any unclassified failure.
+     - Retry with fixed backoff: 3 attempts with 1-second interval (`FixedBackOff(1000L, 2L)` - initial attempt + 2 retries). The back-off function returns `null` for these, which selects this default.
      - If all retry attempts are exhausted, publish to `telemetry-events-dlt`.
 
-4. **Transient Outage vs. DLT Quarantine Trade-Off:**
-   - With `FixedBackOff(1000L, 2L)`, total retry duration is approximately 2 seconds. If a database outage exceeds 2 seconds, valid telemetry messages will exhaust retries and be routed to `telemetry-events-dlt`.
-   - While DLT preserves messages durably and prevents data loss (allowing subsequent replay via `TelemetryDltReplayService`), DLT was conceptually designed for unrecoverable poison pills rather than infrastructure outages. In a high-throughput production environment, an exponential backoff with Kafka listener container pausing (`CommonContainerStoppingErrorHandler` or pausing the consumer partition) is recommended to halt partition consumption during prolonged infrastructure downtime instead of filling DLT with valid traffic.
+4. **Transient Outage vs. DLT Quarantine Trade-Off (revised 2026-10-21):**
+   - Originally every non-validation failure used `FixedBackOff(1000L, 2L)`. Experiment 10 measured the effect: a valid record already in Kafka reached the DLT about 92 s into a PostgreSQL outage (three attempts, each waiting for Hikari's 30 s `connectionTimeout`, plus 2 × 1 s back-off), not after 2 s as first estimated.
+   - Dead-lettering valid telemetry during an outage is the wrong outcome. The message is not at fault, it needs manual replay, and later readings for the same machine are processed before it, which breaks the per-machine ordering that ADR-004's partition key provides.
+   - Transient database failures therefore block the partition and retry. Each retry is a new `poll()`, so the consumer stays in the group as long as one attempt plus one back-off interval stays below `max.poll.interval.ms` (300 s). The 30 s `maxInterval` cap keeps that at about 60 s in production.
+   - `CommonContainerStoppingErrorHandler` was considered and rejected: a stopped container needs an operator or extra automation to restart it, while the back-off resumes on its own. That matters for the unattended EC2 deployment (ADR-011).
 
 5. **Offset Commit Semantics:**
    - Once a failed record is successfully routed to the Dead Letter Topic by `DeadLetterPublishingRecoverer`, the original offset in the primary topic is committed (ACKed).
@@ -51,6 +57,8 @@ Discarding permanently invalid messages is unacceptable in production because:
 ## Consequences
 
 - Poison pills no longer stall partition consumption; telemetry for healthy sensors on the same partition continues processing unimpeded.
+- A PostgreSQL outage deliberately stalls consumption instead. A single listener thread serves all three partitions, so every partition waits; this is acceptable because they all depend on the same database. Kafka buffers the backlog and the consumer catches up after recovery.
+- A misclassified permanent failure would be retried forever and stall the consumer. That is why only the two connection-failure types are classified as transient.
 - Corrupted messages are preserved durably in Kafka for operator inspection, triage, and subsequent controlled replay.
 - Network overhead: publishing to DLT consumes broker bandwidth and disk storage. Retention on DLT topics (`log.retention.hours=168`) must be managed in operations.
 - **Known limitation — deserialization failures:** for a record that failed in `ErrorHandlingDeserializer`, the recoverer publishes the original raw `byte[]`. The application `KafkaTemplate` uses `JsonSerializer` for values, which serializes a `byte[]` as a base64 JSON string, so the DLT copy of a malformed record is not byte-identical to the original. A `ByteArraySerializer` (or `DelegatingByTypeSerializer`) template for the recoverer would be required to preserve raw bytes.
@@ -58,4 +66,5 @@ Discarding permanently invalid messages is unacceptable in production because:
 ## Alternatives Considered
 
 - **Logging and discarding (Phase 1 baseline):** Rejected. Causes unrecoverable telemetry loss and blinds operational teams to faulty sensors or breaking changes.
-- **Retrying indefinitely until manual fix:** Rejected. Completely blocks the partition (Head-of-Line blocking), accumulating massive Kafka lag for all machines hashed to that partition.
+- **Retrying indefinitely until manual fix:** Rejected for message-level and unclassified failures. Completely blocks the partition (Head-of-Line blocking), accumulating massive Kafka lag for all machines hashed to that partition. Accepted only for transient database failures (Decision 4), where every message would fail the same way and blocking costs nothing that proceeding would gain.
+- **Stopping the listener container (`CommonContainerStoppingErrorHandler`):** Rejected for database outages; recovery would need a manual or scripted container restart (Decision 4).

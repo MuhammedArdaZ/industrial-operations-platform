@@ -128,7 +128,7 @@ MQTT message (QoS 1, persistent session)
   -> messageArrived returns -> Paho sends PUBACK
 ```
 
-Downstream unrecoverable poison pills and transient failures are handled via Dead Letter Topic (`telemetry-events-dlt`), `FixedBackOff(1000L, 2L)` retries, and controlled operator replay via `TelemetryDltReplayService` (ADR-006, ADR-007).
+Downstream, poison pills go straight to the Dead Letter Topic (`telemetry-events-dlt`), and other failures get `FixedBackOff(1000L, 2L)` retries before being dead-lettered, with controlled operator replay via `TelemetryDltReplayService` (ADR-006, ADR-007). Database connection failures are the exception: the consumer retries them with an exponential back-off (capped at 30 s) until PostgreSQL returns and never dead-letters them, so a database outage pauses consumption instead of quarantining valid telemetry.
 
 ## Data and consistency model
 
@@ -251,6 +251,7 @@ The platform enforces verification across unit, integration, and operational tie
   - End-to-end ingestion adapter $\rightarrow$ Kafka $\rightarrow$ PostgreSQL telemetry processing (the test calls `MqttIngestionAdapter.handle(...)` directly; the MQTT broker transport and `MqttTelemetryClient` are covered by unit tests only, not by a Mosquitto container).
   - Consumer downtime buffering and catch-up on restart.
   - Poison pill routing to `telemetry-events-dlt` and header diagnostics (ADR-006).
+  - PostgreSQL outage with telemetry already in Kafka: the consumer waits for the database instead of dead-lettering (`TelemetryDatabaseOutageIntegrationTest`, pauses the PostgreSQL container, ADR-006).
   - Controlled batch replay from DLT back into primary pipeline (ADR-007).
   - Optimistic locking collision rejection on `MachineLatestState` (ADR-008).
   - Stateful alerting lifecycle, anti-spam deduplication, out-of-order suppression, and hysteresis auto-clearing (`AlertIntegrationTest.java`, ADR-010).
