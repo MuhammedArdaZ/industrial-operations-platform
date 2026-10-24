@@ -131,7 +131,7 @@ This document records the empirical results of our distributed systems failure, 
 ### Notes from Experiments 8 and 9
 
 - `docker compose start/restart <service>` also starts the service's `depends_on` chain (simulator -> backend -> kafka). Use the plain `docker` CLI to break a single container.
-- If the `kafka` hostname cannot be resolved at startup, the backend fails fast with `No resolvable bootstrap urls`. Compose defines no `restart:` policy, so it stays down until restarted manually.
+- If the `kafka` hostname cannot be resolved at startup, the backend fails fast with `No resolvable bootstrap urls`. Every Compose service now uses `restart: unless-stopped`, so Docker restarts the backend until the hostname resolves (verified: two `Exited (1)` crashes while `kafka` was stopped, then `Started` once it came back). `docker pause` is not an exit and does not trigger the policy, and a service stopped deliberately with `docker compose stop` stays down.
 - `MqttTelemetryClient` connects in `@PostConstruct`, so it starts processing the MQTT backlog about 40 s before the application reports `Started` (Spring logs singleton-lock warnings). Starting it on `ApplicationReadyEvent` or via `SmartLifecycle` would fix this.
 - `KafkaAdmin` topic creation adds about 40 s to startup when the broker is unresponsive.
 
