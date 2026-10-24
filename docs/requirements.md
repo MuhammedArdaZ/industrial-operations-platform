@@ -52,7 +52,7 @@ The initial release is a single modular Spring Boot application. It is intended 
 9. **Observability & Dashboards:** Prometheus endpoint (`/actuator/prometheus`), custom domain counters and percentile timers (`TelemetryMetrics`), Prometheus container (:9090), and pre-configured Grafana telemetry dashboard (:3000) (ADR-009).
 10. **Containerization & CI:** Docker Compose orchestrating all platform components; automated GitHub Actions CI verifying the complete test suite on every commit.
 11. **Stateful Alerting Engine & Hysteresis:** Evaluates operational threshold anomalies (temperature ≥ 90.0°C, vibration ≥ 0.80g) in-pipeline within the database transaction; performs in-place anti-spam row deduplication across all open alerts (`ACTIVE` + `ACKNOWLEDGED`); suppresses threshold flapping via hysteresis auto-clearing deadbands (clearing when temperature < 85.0°C, vibration < 0.60g); enforces check-then-insert isolation via Flyway V5 partial unique index `idx_alerts_open_unique`; exposes operational REST lifecycle endpoints (`/api/v1/alerts`, `/acknowledge`) (ADR-010).
-12. **Live Cloud Deployment:** Deployed on AWS EC2 (`<EC2_PUBLIC_IP>`) with multi-stage Docker build, Prometheus, Grafana, and sensor simulator running 24/7 (ADR-011).
+12. **Cloud Deployment:** Deployed on AWS EC2 (`<EC2_PUBLIC_IP>`) with multi-stage Docker build, Prometheus, Grafana, and the sensor simulator; the instance is stopped when not in use (ADR-011).
 
 ### Future functional capabilities (Phase 5 / Extensions)
 

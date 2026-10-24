@@ -36,7 +36,7 @@ Phases 1, 2, 3, and 4 are **completed**:
 - **Ingress Acknowledgement:** The MQTT `PUBACK` is sent only after Kafka acknowledges the publish (`KAFKA_PUBLISH_TIMEOUT`, `KAFKA_MAX_BLOCK_MS`); the MQTT client subscribes asynchronously to avoid a Paho callback-thread deadlock on reconnect (ADR-012).
 - **Redis Deferred (Design Decision):** Redis caching and distributed locking were evaluated during Phase 2. PostgreSQL optimistic locking (`@Version`) cleanly eliminated lost updates on the projection table without the operational overhead, cache invalidation races, and split-brain risks of introducing a Redis cluster.
 - **Observability Stack:** Fully delivered via Spring Boot Actuator, custom Micrometer metrics (`telemetry_ingested_total`, `telemetry_duplicates_total`, `telemetry_processing_time_seconds`), Prometheus pull scraping (:9090), and pre-provisioned Grafana dashboards (:3000) (ADR-009).
-- **Live AWS Cloud Deployment:** Running on AWS EC2 (`<EC2_PUBLIC_IP>`) with multi-stage Docker build, Prometheus, Grafana, and Python sensor simulator running continuously (ADR-011).
+- **AWS Cloud Deployment:** Deployed on AWS EC2 (`<EC2_PUBLIC_IP>`) with multi-stage Docker build, Prometheus, Grafana, and the Python sensor simulator. The instance is stopped when not in use and is reachable only from the operator's IP (ADR-011).
 - **Verification:** Automated JUnit 5 unit and Testcontainers-backed integration test suite executing on every commit in GitHub Actions CI.
 
 ## Architecture rules
@@ -56,7 +56,7 @@ Phases 1, 2, 3, and 4 are **completed**:
 1. **Working Event-Driven Core [COMPLETED]**: a sensor simulator and machine/sensor management, PostgreSQL persistence, REST API, MQTT ingestion, Kafka producer/consumer, telemetry persistence, and latest-state querying.
 2. **Distributed Systems Depth [COMPLETED]**: demonstrable work on idempotency (`(sensor_id, source_message_id)`, Flyway V2, ADR-005), partition ordering key (`machineId`, ADR-004), poison pill quarantine & DLT (`telemetry-events-dlt`, `FixedBackOff`, ADR-006), controlled replay (`TelemetryDltReplayService`, ADR-007), and optimistic concurrency locking (`@Version`, Flyway V3, ADR-008). Failure experiments recorded in `docs/failure-scenarios.md`.
 3. **Production Readiness [COMPLETED]**: Docker Compose (all 6 services), expanded Testcontainers automated test suite, GitHub Actions CI, Actuator health checks, Prometheus metrics endpoint (`TelemetryMetrics`), and Grafana dashboard (ADR-009).
-4. **Operational Alerting & Hysteresis [COMPLETED]**: in-pipeline threshold evaluation (Temp ≥ 90.0°C, Vib ≥ 0.80g), anti-spam row deduplication, noise suppression hysteresis deadbands (clearing at 85.0°C / 0.60g), REST lifecycle endpoints, Flyway V4 composite indexes, Flyway V5 partial unique index, and AWS EC2 live deployment (`<EC2_PUBLIC_IP>`) (ADR-010, ADR-011).
+4. **Operational Alerting & Hysteresis [COMPLETED]**: in-pipeline threshold evaluation (Temp ≥ 90.0°C, Vib ≥ 0.80g), anti-spam row deduplication, noise suppression hysteresis deadbands (clearing at 85.0°C / 0.60g), REST lifecycle endpoints, Flyway V4 composite indexes, Flyway V5 partial unique index, and AWS EC2 deployment (`<EC2_PUBLIC_IP>`) (ADR-010, ADR-011).
 5. **Optional (Future Extensions)**: Maintenance/work orders, Live Factory Floor Web UI (WebSocket / SSE), OpenAPI/Swagger interactive UI (`springdoc-openapi`), OpenTelemetry/tracing, Toxiproxy, and Kubernetes manifests.
 
 ## Coding expectations

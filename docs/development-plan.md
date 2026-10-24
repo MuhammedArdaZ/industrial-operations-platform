@@ -69,7 +69,7 @@ Sensor Simulator -> MQTT Broker -> Spring Boot MQTT Ingestion -> Kafka Producer 
 - [x] **In-pipeline transaction integration:** Direct invocation inside `TelemetryService.recordTelemetry(...)`, guarded by latest-state projection check to suppress stale out-of-order evaluations.
 - [x] **REST API surface:** Endpoints `/api/v1/alerts`, `/api/v1/alerts/machines/{machineId}`, and `POST /api/v1/alerts/{alertId}/acknowledge` for facility-wide and machine-level incident management.
 - [x] **Automated verification:** Testcontainers integration tests (`AlertIntegrationTest.java`) verifying the full alert lifecycle (`ACTIVE` → `ACKNOWLEDGED` → `RESOLVED`), open-alert deduplication continuity, and out-of-order telemetry suppression.
-- [x] **Live cloud deployment:** Multi-stage Docker build deployed to AWS EC2 (`<EC2_PUBLIC_IP>`), streaming live telemetry and evaluating alerts 24/7 (ADR-011).
+- [x] **Cloud deployment:** Multi-stage Docker build deployed to AWS EC2 (`<EC2_PUBLIC_IP>`), streaming telemetry and evaluating alerts while the instance runs (ADR-011).
 
 **Exit criteria:** **MET.** Alerting engine operates with zero duplicate spam under prolonged spikes and auto-clears cleanly across telemetry streams.
 

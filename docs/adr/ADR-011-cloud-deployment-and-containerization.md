@@ -2,7 +2,7 @@
 
 ## Context
 
-Following the local verification of the modular monolith and its supporting distributed services (PostgreSQL, Eclipse Mosquitto, Apache Kafka KRaft, Spring Boot Backend, Prometheus, Grafana), the platform required a real cloud deployment to validate operational behavior under continuous 24/7 telemetry streaming.
+Following the local verification of the modular monolith and its supporting distributed services (PostgreSQL, Eclipse Mosquitto, Apache Kafka KRaft, Spring Boot Backend, Prometheus, Grafana), the platform required a real cloud deployment to validate operational behavior under sustained telemetry streaming.
 
 The deployment needed to satisfy the following requirements:
 1. **Zero Architectural Divergence:** The cloud environment must run the exact same containerized software architecture as local development.
@@ -20,7 +20,7 @@ The deployment needed to satisfy the following requirements:
      - `industrial-backend` (Spring Boot 3.5 multi-stage Docker build)
      - `industrial-prometheus` (Prometheus v2.51)
      - `industrial-grafana` (Grafana 10.4 with pre-provisioned dashboards)
-     - `industrial-simulator` (Python sensor simulator; Compose service `simulator`, enabled with `--profile simulator`, running continuously)
+     - `industrial-simulator` (Python sensor simulator; Compose service `simulator`, enabled with `--profile simulator`, streaming while the instance runs)
 
 2. **Self-Contained Multi-Stage Docker Build:**
    - Migrate `backend/Dockerfile` to a multi-stage Maven build (`eclipse-temurin:25-jdk-noble` builder stage, `eclipse-temurin:25-jre-noble` runtime stage, running as a non-root `spring` user).
