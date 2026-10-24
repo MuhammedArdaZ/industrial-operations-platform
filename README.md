@@ -1,8 +1,8 @@
 # Industrial Operations Platform
 
 [![CI Pipeline](https://github.com/MuhammedArdaZ/industrial-operations-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/MuhammedArdaZ/industrial-operations-platform/actions/workflows/ci.yml)
-[![Deployment](https://img.shields.io/badge/AWS%20EC2-Live%20Deployment-232F3E?logo=amazon-aws)](docs/adr/ADR-011-cloud-deployment-and-containerization.md)
-[![Grafana](https://img.shields.io/badge/Grafana-Live%20Dashboard-F46800?logo=grafana)](docs/adr/ADR-011-cloud-deployment-and-containerization.md)
+[![Deployment](https://img.shields.io/badge/AWS%20EC2-Deployment-232F3E?logo=amazon-aws)](docs/adr/ADR-011-cloud-deployment-and-containerization.md)
+[![Grafana](https://img.shields.io/badge/Grafana-Dashboard-F46800?logo=grafana)](docs/adr/ADR-011-cloud-deployment-and-containerization.md)
 
 Industrial Operations Platform is a modular-monolith backend designed for high-frequency industrial equipment monitoring, telemetry ingestion, operational alerting, and asset tracking. It demonstrates practical enterprise backend architecture and distributed-systems patterns without introducing premature microservices or operational overhead.
 
@@ -185,9 +185,9 @@ curl -s -X POST http://localhost:8080/api/v1/alerts/<ALERT_ID>/acknowledge | jq 
 
 ---
 
-### 🌐 Live Cloud Deployment (AWS EC2)
+### 🌐 Cloud Deployment (AWS EC2)
 
-The platform is deployed live on an **AWS EC2** instance (`m7i-flex.large`, 2 vCPU, 8 GB RAM, Ubuntu 26.04). In accordance with ADR-011, dynamic public addressing is used (Elastic IP is avoided to prevent idle billing charges when stopped):
+The platform is deployed on an **AWS EC2** instance (`m7i-flex.large`, 2 vCPU, 8 GB RAM, Ubuntu 26.04). In accordance with ADR-011, dynamic public addressing is used (Elastic IP is avoided to prevent idle billing charges when stopped). The instance is stopped when not in use, and its security group admits only the operator's IP, so these endpoints are not publicly reachable:
 
 | Service | Public Endpoint | Credentials / Purpose |
 |---|---|---|
@@ -198,7 +198,7 @@ The platform is deployed live on an **AWS EC2** instance (`m7i-flex.large`, 2 vC
 
 *(Note: Replace `<EC2_PUBLIC_IP>` with the current public IPv4 address of the EC2 instance.)*
 
-The cloud deployment runs the complete stack via Docker Compose: Mosquitto MQTT, Kafka KRaft, PostgreSQL 16 (Flyway V1–V5), Spring Boot multi-stage build, Prometheus, Grafana, and the Python sensor simulator streaming live telemetry continuously.
+The cloud deployment runs the complete stack via Docker Compose: Mosquitto MQTT, Kafka KRaft, PostgreSQL 16 (Flyway V1–V5), Spring Boot multi-stage build, Prometheus, Grafana, and the Python sensor simulator streaming telemetry while the instance runs. Every service uses `restart: unless-stopped`, so the stack comes back automatically when the instance is started.
 
 ---
 
@@ -227,5 +227,5 @@ The cloud deployment runs the complete stack via Docker Compose: Mosquitto MQTT,
   - [x] Out-of-order telemetry suppression (guarded by machine latest-state occurredAt)
   - [x] REST API endpoints (`/api/v1/alerts`, `/api/v1/alerts/machines/{machineId}`, `/api/v1/alerts/{alertId}/acknowledge`)
   - [x] Full lifecycle integration testing (`ACTIVE` → `ACKNOWLEDGED` → `RESOLVED`, `AlertIntegrationTest`)
-  - [x] Live cloud deployment to AWS EC2 (`<EC2_PUBLIC_IP>`) with multi-stage Docker build (ADR-011)
+  - [x] Cloud deployment to AWS EC2 (`<EC2_PUBLIC_IP>`) with multi-stage Docker build (ADR-011)
 
