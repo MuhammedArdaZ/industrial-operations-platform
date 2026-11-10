@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,10 +21,12 @@ public class AlertService {
 
     private static final List<AlertStatus> OPEN_STATUSES = List.of(AlertStatus.ACTIVE, AlertStatus.ACKNOWLEDGED);
 
+    private final ApplicationEventPublisher publisher;
     private final AlertRepository alertRepository;
 
-    public AlertService(AlertRepository alertRepository) {
+    public AlertService(AlertRepository alertRepository, ApplicationEventPublisher publisher) {
         this.alertRepository = alertRepository;
+        this.publisher = publisher;
     }
 
     @Transactional
@@ -57,7 +60,8 @@ public class AlertService {
             if (openAlert.isPresent()) {
                 Alert alert = openAlert.get();
                 alert.updateCurrentValue(temperature);
-                alertRepository.save(alert);
+                Alert saved = alertRepository.saveAndFlush(alert);
+                publisher.publishEvent(AlertEvent.from(saved, AlertEventType.UPDATED));
             } else {
                 Alert newAlert = new Alert(
                         machineId,
@@ -68,7 +72,8 @@ public class AlertService {
                         TEMPERATURE_THRESHOLD,
                         "Critical temperature breach: " + temperature + "°C",
                         occurredAt);
-                alertRepository.save(newAlert);
+                Alert saved = alertRepository.saveAndFlush(newAlert);
+                publisher.publishEvent(AlertEvent.from(saved, AlertEventType.CREATED));
             }
         } else if (temperature.compareTo(TEMPERATURE_CLEAR_THRESHOLD) < 0) {
             resolveOpenAlerts(machineId, AlertRuleType.HIGH_TEMPERATURE, occurredAt);
@@ -94,7 +99,8 @@ public class AlertService {
             if (openAlert.isPresent()) {
                 Alert alert = openAlert.get();
                 alert.updateCurrentValue(vibration);
-                alertRepository.save(alert);
+                Alert saved = alertRepository.saveAndFlush(alert);
+                publisher.publishEvent(AlertEvent.from(saved, AlertEventType.UPDATED));
             } else {
                 Alert newAlert = new Alert(
                         machineId,
@@ -105,7 +111,8 @@ public class AlertService {
                         VIBRATION_THRESHOLD,
                         "Critical vibration breach: " + vibration + "g",
                         occurredAt);
-                alertRepository.save(newAlert);
+                Alert saved = alertRepository.saveAndFlush(newAlert);
+                publisher.publishEvent(AlertEvent.from(saved, AlertEventType.CREATED));
             }
         } else if (vibration.compareTo(VIBRATION_CLEAR_THRESHOLD) < 0) {
             resolveOpenAlerts(machineId, AlertRuleType.HIGH_VIBRATION, occurredAt);
@@ -119,7 +126,8 @@ public class AlertService {
                 AlertStatus.ACTIVE);
         activeAlert.ifPresent(a -> {
             a.resolve(resolvedAt);
-            alertRepository.save(a);
+            Alert saved = alertRepository.saveAndFlush(a);
+            publisher.publishEvent(AlertEvent.from(saved, AlertEventType.RESOLVED));
         });
 
         Optional<Alert> acknowledgedAlert = alertRepository.findByMachineIdAndRuleTypeAndStatus(
@@ -128,7 +136,8 @@ public class AlertService {
                 AlertStatus.ACKNOWLEDGED);
         acknowledgedAlert.ifPresent(a -> {
             a.resolve(resolvedAt);
-            alertRepository.save(a);
+            Alert saved = alertRepository.saveAndFlush(a);
+            publisher.publishEvent(AlertEvent.from(saved, AlertEventType.RESOLVED));
         });
     }
 
@@ -137,7 +146,9 @@ public class AlertService {
         Alert alert = alertRepository.findById(alertId)
                 .orElseThrow(() -> new IllegalArgumentException("Alert not found with id: " + alertId));
         alert.acknowledge(Instant.now());
-        return alertRepository.save(alert);
+        Alert saved = alertRepository.saveAndFlush(alert);
+        publisher.publishEvent(AlertEvent.from(saved, AlertEventType.ACKNOWLEDGED));
+        return saved;
     }
 
     @Transactional(readOnly = true)
