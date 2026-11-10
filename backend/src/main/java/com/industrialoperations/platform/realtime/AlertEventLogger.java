@@ -14,7 +14,7 @@ public class AlertEventLogger {
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void on(AlertEvent event) {
-        log.info("type={}, alertId={}, machineId={}, status={}, version={}",
-                event.eventType(), event.alertId(), event.machineId(), event.status(), event.version());
+        log.info("eventType={}, ruleType={}, status={}, machineId={}, alertId={}, version={}",
+                event.eventType(), event.ruleType(), event.status(), event.machineId(), event.alertId(), event.version());
     }
 }
