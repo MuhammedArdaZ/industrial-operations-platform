@@ -162,17 +162,17 @@ public class AlertIntegrationTest extends AbstractIntegrationTest {
     @DisplayName("Should resolve active alerts when temperature falls below clearing threshold (Hysteresis < 85.0°C)")
     void shouldResolveAlertWhenTemperatureFallsBelowClearingThreshold() {
         Instant t1 = Instant.now();
-        // 1. Eşik aşımı: 92.0°C -> Alarm tetiklenir
+        // 1. Threshold breach: 92.0°C -> alert is triggered
         telemetryService.recordTelemetry(createCommand(new BigDecimal("92.0"), new BigDecimal("0.10"), t1));
         assertThat(alertRepository.findByStatusOrderByTriggeredAtDesc(AlertStatus.ACTIVE)).hasSize(1);
 
-        // 2. Ölü bant (Deadband): 88.0°C -> 85.0 ile 90.0 arasında hala ACTIVE kalmalı
+        // 2. Deadband: 88.0°C is between 85.0 and 90.0 -> alert must stay ACTIVE
         Instant t2 = t1.plusSeconds(5);
         telemetryService.recordTelemetry(createCommand(new BigDecimal("88.0"), new BigDecimal("0.10"), t2));
         assertThat(alertRepository.findByStatusOrderByTriggeredAtDesc(AlertStatus.ACTIVE)).hasSize(1);
         assertThat(alertRepository.findByStatusOrderByTriggeredAtDesc(AlertStatus.RESOLVED)).isEmpty();
 
-        // 3. Eşiğin altına düşüş: 84.0°C (< 85.0°C) -> Alarm RESOLVED olmalı
+        // 3. Drop below clearing threshold: 84.0°C (< 85.0°C) -> alert must be RESOLVED
         Instant t3 = t2.plusSeconds(5);
         telemetryService.recordTelemetry(createCommand(new BigDecimal("84.0"), new BigDecimal("0.10"), t3));
 
@@ -205,17 +205,17 @@ public class AlertIntegrationTest extends AbstractIntegrationTest {
     @Test
     @DisplayName("Should retrieve active alerts and machine alerts via GET endpoints")
     void shouldRetrieveActiveAlertsAndMachineAlertsViaRestApi() throws Exception {
-        // Hem yüksek sıcaklık (95°C) hem yüksek titreşim (0.90g) -> 2 aktif alarm üretir
+        // Both high temperature (95°C) and high vibration (0.90g) -> produces 2 active alerts
         telemetryService.recordTelemetry(createCommand(new BigDecimal("95.0"), new BigDecimal("0.90"), Instant.now()));
 
-        // 1. GET /api/v1/alerts -> 2 aktif alarm dönmeli
+        // 1. GET /api/v1/alerts -> must return 2 active alerts
         mockMvc.perform(get("/api/v1/alerts"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].status").value("ACTIVE"))
                 .andExpect(jsonPath("$[1].status").value("ACTIVE"));
 
-        // 2. GET /api/v1/alerts/machines/{machineId} -> makineye ait alarmlar dönmeli
+        // 2. GET /api/v1/alerts/machines/{machineId} -> must return the machine's alerts
         mockMvc.perform(get("/api/v1/alerts/machines/{machineId}", testMachine.getId()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
@@ -234,16 +234,16 @@ public class AlertIntegrationTest extends AbstractIntegrationTest {
         Alert alert = alerts.getFirst();
         assertThat(alert.getStatus()).isEqualTo(AlertStatus.ACTIVE);
 
-        // Operatör alarmı onaylar (ACKNOWLEDGE)
+        // Operator acknowledges the alert
         alertService.acknowledgeAlert(alert.getId());
         Alert acknowledged = alertRepository.findById(alert.getId()).orElseThrow();
         assertThat(acknowledged.getStatus()).isEqualTo(AlertStatus.ACKNOWLEDGED);
 
-        // İhlal devam ediyor: 96.0°C yeni telemetri
+        // Breach continues: new telemetry at 96.0°C
         Instant t2 = t1.plusSeconds(5);
         telemetryService.recordTelemetry(createCommand(new BigDecimal("96.0"), new BigDecimal("0.10"), t2));
 
-        // Yeni alarm açılmamalı, toplam alarm sayısı hala 1 olmalı ve değeri güncellenmeli
+        // No new alert must be opened: total count stays 1 and the current value is updated
         List<Alert> alertsAfter = alertRepository.findByMachineIdOrderByTriggeredAtDesc(testMachine.getId());
         assertThat(alertsAfter).hasSize(1);
         Alert updated = alertsAfter.getFirst();
@@ -258,20 +258,20 @@ public class AlertIntegrationTest extends AbstractIntegrationTest {
         Instant t2_newer = Instant.parse("2026-10-09T14:00:00Z");
         Instant t1_older = Instant.parse("2026-10-09T13:00:00Z");
 
-        // 1. Güncel normal telemetri (75°C) -> Alarm üretilmez
+        // 1. Current normal telemetry (75°C) -> no alert
         telemetryService.recordTelemetry(createCommand(new BigDecimal("75.0"), new BigDecimal("0.10"), t2_newer));
         assertThat(alertRepository.findByMachineIdOrderByTriggeredAtDesc(testMachine.getId())).isEmpty();
 
-        // 2. Gecikmeli gelen eski telemetri (95°C, 1 saat önce) -> Projeksiyon güncellenmez ve ALARM AÇILMAMALI!
+        // 2. Late-arriving older telemetry (95°C, 1 hour earlier) -> projection is not updated and NO alert must be opened
         telemetryService.recordTelemetry(createCommand(new BigDecimal("95.0"), new BigDecimal("0.10"), t1_older));
         assertThat(alertRepository.findByMachineIdOrderByTriggeredAtDesc(testMachine.getId())).isEmpty();
 
-        // 3. Güncel bir yüksek sıcaklık (95°C, 14:05) -> Aktif alarm oluşmalı
+        // 3. Current high temperature (95°C, 14:05) -> an active alert must be opened
         Instant t3_newer = Instant.parse("2026-10-09T14:05:00Z");
         telemetryService.recordTelemetry(createCommand(new BigDecimal("95.0"), new BigDecimal("0.10"), t3_newer));
         assertThat(alertRepository.findByStatusOrderByTriggeredAtDesc(AlertStatus.ACTIVE)).hasSize(1);
 
-        // 4. Gecikmeli gelen eski normal telemetri (70°C, 13:30) -> Aktif alarmı AUTO-CLEAR YAPMAMALI!
+        // 4. Late-arriving older normal telemetry (70°C, 13:30) -> must NOT auto-clear the active alert
         Instant t1_delayed_clear = Instant.parse("2026-10-09T13:30:00Z");
         telemetryService.recordTelemetry(createCommand(new BigDecimal("70.0"), new BigDecimal("0.10"), t1_delayed_clear));
         assertThat(alertRepository.findByStatusOrderByTriggeredAtDesc(AlertStatus.ACTIVE)).hasSize(1);

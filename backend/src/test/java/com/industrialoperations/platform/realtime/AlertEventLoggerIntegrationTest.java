@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import java.math.BigDecimal;
@@ -109,6 +110,28 @@ class AlertEventLoggerIntegrationTest extends AbstractIntegrationTest {
         assertThat(event.ruleType()).isEqualTo(AlertRuleType.HIGH_TEMPERATURE);
         assertThat(event.status()).isEqualTo(AlertStatus.ACTIVE);
         assertThat(event.currentValue()).isEqualByComparingTo(BREACHING_TEMPERATURE);
+    }
+
+    @Test
+    @DisplayName("Should carry the committed version on the UPDATED event of a continuing breach")
+    void shouldCarryCommittedVersionOnUpdatedEvent() {
+        alertService.evaluateTelemetry(
+                machine.getId(), sensor.getSensorId(), Instant.now(), BREACHING_TEMPERATURE, NORMAL_VIBRATION);
+
+        alertService.evaluateTelemetry(
+                machine.getId(), sensor.getSensorId(), Instant.now(), new BigDecimal("96.0"), NORMAL_VIBRATION);
+
+        ArgumentCaptor<AlertEvent> captor = ArgumentCaptor.forClass(AlertEvent.class);
+        verify(alertEventLogger, times(2)).on(captor.capture());
+
+        AlertEvent event = captor.getAllValues().get(1);
+
+        assertThat(event.eventType()).isEqualTo(AlertEventType.UPDATED);
+        assertThat(event.currentValue()).isEqualByComparingTo("96.0");
+
+        Long dbVersion = alertRepository.findById(event.alertId()).orElseThrow().getVersion();
+        assertThat(dbVersion).isEqualByComparingTo(event.version());
+        assertThat(dbVersion).isEqualTo(1L);
     }
 
     @Test

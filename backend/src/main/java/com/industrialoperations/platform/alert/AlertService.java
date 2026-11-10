@@ -60,8 +60,8 @@ public class AlertService {
             if (openAlert.isPresent()) {
                 Alert alert = openAlert.get();
                 alert.updateCurrentValue(temperature);
-                alertRepository.save(alert);
-                publisher.publishEvent(AlertEvent.from(alert, AlertEventType.UPDATED));
+                Alert saved = alertRepository.saveAndFlush(alert);
+                publisher.publishEvent(AlertEvent.from(saved, AlertEventType.UPDATED));
             } else {
                 Alert newAlert = new Alert(
                         machineId,
@@ -72,8 +72,8 @@ public class AlertService {
                         TEMPERATURE_THRESHOLD,
                         "Critical temperature breach: " + temperature + "°C",
                         occurredAt);
-                alertRepository.save(newAlert);
-                publisher.publishEvent(AlertEvent.from(newAlert, AlertEventType.CREATED));
+                Alert saved = alertRepository.saveAndFlush(newAlert);
+                publisher.publishEvent(AlertEvent.from(saved, AlertEventType.CREATED));
             }
         } else if (temperature.compareTo(TEMPERATURE_CLEAR_THRESHOLD) < 0) {
             resolveOpenAlerts(machineId, AlertRuleType.HIGH_TEMPERATURE, occurredAt);
@@ -99,8 +99,8 @@ public class AlertService {
             if (openAlert.isPresent()) {
                 Alert alert = openAlert.get();
                 alert.updateCurrentValue(vibration);
-                alertRepository.save(alert);
-                publisher.publishEvent(AlertEvent.from(alert, AlertEventType.UPDATED));
+                Alert saved = alertRepository.saveAndFlush(alert);
+                publisher.publishEvent(AlertEvent.from(saved, AlertEventType.UPDATED));
             } else {
                 Alert newAlert = new Alert(
                         machineId,
@@ -111,8 +111,8 @@ public class AlertService {
                         VIBRATION_THRESHOLD,
                         "Critical vibration breach: " + vibration + "g",
                         occurredAt);
-                alertRepository.save(newAlert);
-                publisher.publishEvent(AlertEvent.from(newAlert, AlertEventType.CREATED));
+                Alert saved = alertRepository.saveAndFlush(newAlert);
+                publisher.publishEvent(AlertEvent.from(saved, AlertEventType.CREATED));
             }
         } else if (vibration.compareTo(VIBRATION_CLEAR_THRESHOLD) < 0) {
             resolveOpenAlerts(machineId, AlertRuleType.HIGH_VIBRATION, occurredAt);
@@ -126,8 +126,8 @@ public class AlertService {
                 AlertStatus.ACTIVE);
         activeAlert.ifPresent(a -> {
             a.resolve(resolvedAt);
-            alertRepository.save(a);
-            publisher.publishEvent(AlertEvent.from(a, AlertEventType.RESOLVED));
+            Alert saved = alertRepository.saveAndFlush(a);
+            publisher.publishEvent(AlertEvent.from(saved, AlertEventType.RESOLVED));
         });
 
         Optional<Alert> acknowledgedAlert = alertRepository.findByMachineIdAndRuleTypeAndStatus(
@@ -136,8 +136,8 @@ public class AlertService {
                 AlertStatus.ACKNOWLEDGED);
         acknowledgedAlert.ifPresent(a -> {
             a.resolve(resolvedAt);
-            alertRepository.save(a);
-            publisher.publishEvent(AlertEvent.from(a, AlertEventType.RESOLVED));
+            Alert saved = alertRepository.saveAndFlush(a);
+            publisher.publishEvent(AlertEvent.from(saved, AlertEventType.RESOLVED));
         });
     }
 
@@ -146,8 +146,8 @@ public class AlertService {
         Alert alert = alertRepository.findById(alertId)
                 .orElseThrow(() -> new IllegalArgumentException("Alert not found with id: " + alertId));
         alert.acknowledge(Instant.now());
-        Alert saved = alertRepository.save(alert);
-        publisher.publishEvent(AlertEvent.from(alert, AlertEventType.ACKNOWLEDGED));
+        Alert saved = alertRepository.saveAndFlush(alert);
+        publisher.publishEvent(AlertEvent.from(saved, AlertEventType.ACKNOWLEDGED));
         return saved;
     }
 
