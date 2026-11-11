@@ -87,7 +87,7 @@ public class Alert {
 
     public void acknowledge(Instant acknowledgedAt) {
         if (this.status != AlertStatus.ACTIVE) {
-            throw new IllegalStateException("Only ACTIVE alerts can be acknowledged. Current status: " + this.status);
+            throw new InvalidAlertTransitionException(this.id, this.status);
         }
         this.status = AlertStatus.ACKNOWLEDGED;
         this.acknowledgedAt = Objects.requireNonNullElseGet(acknowledgedAt, Instant::now);

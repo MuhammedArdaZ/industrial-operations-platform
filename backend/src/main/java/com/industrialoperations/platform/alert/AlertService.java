@@ -144,7 +144,7 @@ public class AlertService {
     @Transactional
     public Alert acknowledgeAlert(UUID alertId) {
         Alert alert = alertRepository.findById(alertId)
-                .orElseThrow(() -> new IllegalArgumentException("Alert not found with id: " + alertId));
+                .orElseThrow(() -> new AlertNotFoundException(alertId));
         alert.acknowledge(Instant.now());
         Alert saved = alertRepository.saveAndFlush(alert);
         publisher.publishEvent(AlertEvent.from(saved, AlertEventType.ACKNOWLEDGED));
