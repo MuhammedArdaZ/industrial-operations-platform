@@ -1,5 +1,7 @@
 package com.industrialoperations.platform.alert;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -14,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.http.MediaType;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -66,6 +69,25 @@ class AlertControllerTest {
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(409))
                 .andExpect(jsonPath("$.currentStatus").value("ACKNOWLEDGED"))
+                .andExpect(jsonPath("$.trace").doesNotExist());
+    }
+
+    @Test
+    void shouldReturn409WhenAcknowledgeKeepsConflictingAfterRetry() throws Exception {
+        UUID alertId = UUID.randomUUID();
+        ObjectOptimisticLockingFailureException lockFailure =
+                new ObjectOptimisticLockingFailureException(Alert.class, alertId);
+        when(alertService.acknowledgeAlert(alertId))
+                .thenThrow(new AlertConcurrentModificationException(alertId, lockFailure));
+
+        mockMvc.perform(post("/api/v1/alerts/{alertId}/acknowledge", alertId))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.detail").value(containsString(alertId.toString())))
+                // The ORM cause must not leak: its message names the entity class and the locking mechanism.
+                .andExpect(jsonPath("$.detail").value(not(containsString("optimistic locking failed"))))
+                .andExpect(jsonPath("$.detail").value(not(containsString(Alert.class.getName()))))
                 .andExpect(jsonPath("$.trace").doesNotExist());
     }
 

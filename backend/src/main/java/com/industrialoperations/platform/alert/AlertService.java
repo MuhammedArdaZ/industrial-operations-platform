@@ -6,12 +6,17 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class AlertService {
+    private static final int MAX_TRANSACTION_ATTEMPTS = 2;
 
     private static final BigDecimal TEMPERATURE_THRESHOLD = BigDecimal.valueOf(90.0);
     private static final BigDecimal TEMPERATURE_CLEAR_THRESHOLD = BigDecimal.valueOf(85.0);
@@ -19,14 +24,19 @@ public class AlertService {
     private static final BigDecimal VIBRATION_THRESHOLD = BigDecimal.valueOf(0.80);
     private static final BigDecimal VIBRATION_CLEAR_THRESHOLD = BigDecimal.valueOf(0.60);
 
+    private static final Logger log = LoggerFactory.getLogger(AlertService.class);
     private static final List<AlertStatus> OPEN_STATUSES = List.of(AlertStatus.ACTIVE, AlertStatus.ACKNOWLEDGED);
 
     private final ApplicationEventPublisher publisher;
     private final AlertRepository alertRepository;
 
-    public AlertService(AlertRepository alertRepository, ApplicationEventPublisher publisher) {
+    private final TransactionTemplate transactionTemplate;
+
+    public AlertService(AlertRepository alertRepository, ApplicationEventPublisher publisher,
+            TransactionTemplate transactionTemplate) {
         this.alertRepository = alertRepository;
         this.publisher = publisher;
+        this.transactionTemplate = transactionTemplate;
     }
 
     @Transactional
@@ -141,14 +151,17 @@ public class AlertService {
         });
     }
 
-    @Transactional
     public Alert acknowledgeAlert(UUID alertId) {
-        Alert alert = alertRepository.findById(alertId)
-                .orElseThrow(() -> new AlertNotFoundException(alertId));
-        alert.acknowledge(Instant.now());
-        Alert saved = alertRepository.saveAndFlush(alert);
-        publisher.publishEvent(AlertEvent.from(saved, AlertEventType.ACKNOWLEDGED));
-        return saved;
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return acknowledgeInNewTransaction(alertId);
+            } catch (ObjectOptimisticLockingFailureException e) {
+                if (attempt >= MAX_TRANSACTION_ATTEMPTS) {
+                    throw new AlertConcurrentModificationException(alertId, e);
+                }
+                log.warn("Optimistic lock conflict on acknowledge, retrying alertId={} attempt={} ", alertId, attempt);
+            }
+        }
     }
 
     @Transactional(readOnly = true)
@@ -159,5 +172,16 @@ public class AlertService {
     @Transactional(readOnly = true)
     public List<Alert> getAlertsByMachine(UUID machineId) {
         return alertRepository.findByMachineIdOrderByTriggeredAtDesc(machineId);
+    }
+
+    private Alert acknowledgeInNewTransaction(UUID alertId) {
+        return transactionTemplate.execute(status -> {
+            Alert alert = alertRepository.findById(alertId)
+                    .orElseThrow(() -> new AlertNotFoundException(alertId));
+            alert.acknowledge(Instant.now());
+            Alert saved = alertRepository.saveAndFlush(alert);
+            publisher.publishEvent(AlertEvent.from(saved, AlertEventType.ACKNOWLEDGED));
+            return saved;
+        });
     }
 }

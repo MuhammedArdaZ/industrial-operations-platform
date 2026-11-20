@@ -7,6 +7,7 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import com.industrialoperations.platform.alert.AlertConcurrentModificationException;
 import com.industrialoperations.platform.alert.AlertNotFoundException;
 import com.industrialoperations.platform.alert.InvalidAlertTransitionException;
 
@@ -33,4 +34,10 @@ public class ApiExceptionHandler {
 
         return problemDetail;
     }
+
+    @ExceptionHandler(AlertConcurrentModificationException.class)
+    public ProblemDetail handleAlertConcurrentModification(AlertConcurrentModificationException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
 }
