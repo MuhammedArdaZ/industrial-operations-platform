@@ -8,6 +8,11 @@ public class AlertConcurrentModificationException extends RuntimeException {
 
     public AlertConcurrentModificationException(UUID alertId, Exception cause) {
         this.alertId = alertId;
-        super("Version conflict before commit on alertId= " + alertId, cause);
+        super("Acknowledge failed due to concurrent modification, alertId=" + alertId, cause);
     }
+
+    public UUID getAlertId() {
+        return alertId;
+    }
+
 }

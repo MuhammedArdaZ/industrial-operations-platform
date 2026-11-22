@@ -37,7 +37,13 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(AlertConcurrentModificationException.class)
     public ProblemDetail handleAlertConcurrentModification(AlertConcurrentModificationException ex) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        log.warn("Acknowledge rejected with 409 after concurrent modification alertId={}", ex.getAlertId());
+
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
+                "Alert was modified concurrently. Reload it and retry.");
+        problemDetail.setProperty("alertId", ex.getAlertId());
+
+        return problemDetail;
     }
 
 }

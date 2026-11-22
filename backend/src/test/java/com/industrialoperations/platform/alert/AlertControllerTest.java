@@ -84,7 +84,8 @@ class AlertControllerTest {
                 .andExpect(status().isConflict())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(409))
-                .andExpect(jsonPath("$.detail").value(containsString(alertId.toString())))
+                .andExpect(jsonPath("$.alertId").value(alertId.toString()))
+                .andExpect(jsonPath("$.detail").value("Alert was modified concurrently. Reload it and retry."))
                 // The ORM cause must not leak: its message names the entity class and the locking mechanism.
                 .andExpect(jsonPath("$.detail").value(not(containsString("optimistic locking failed"))))
                 .andExpect(jsonPath("$.detail").value(not(containsString(Alert.class.getName()))))
