@@ -1,8 +1,14 @@
 package com.industrialoperations.platform.alert;
 
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -10,6 +16,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -89,6 +96,73 @@ class AlertControllerTest {
                 // The ORM cause must not leak: its message names the entity class and the locking mechanism.
                 .andExpect(jsonPath("$.detail").value(not(containsString("optimistic locking failed"))))
                 .andExpect(jsonPath("$.detail").value(not(containsString(Alert.class.getName()))))
+                .andExpect(jsonPath("$.trace").doesNotExist());
+    }
+
+    @Test
+    void shouldLeaveDefaultStatusFilterToServiceWhenParamAbsent() throws Exception {
+        when(alertService.getOpenAlerts(isNull())).thenReturn(List.of(newActiveAlert()));
+
+        mockMvc.perform(get("/api/v1/alerts"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].status").value("ACTIVE"));
+
+        // Absent param binds to null; the ACTIVE default is a domain rule and lives in AlertService.
+        verify(alertService).getOpenAlerts(isNull());
+    }
+
+    @Test
+    void shouldBindCommaSeparatedStatusFilter() throws Exception {
+        Alert active = newActiveAlert();
+        Alert acknowledged = newActiveAlert();
+        acknowledged.acknowledge(ACKNOWLEDGED_AT);
+        List<AlertStatus> requested = List.of(AlertStatus.ACTIVE, AlertStatus.ACKNOWLEDGED);
+        when(alertService.getOpenAlerts(requested)).thenReturn(List.of(active, acknowledged));
+
+        mockMvc.perform(get("/api/v1/alerts").param("status", "ACTIVE,ACKNOWLEDGED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[*].status", containsInAnyOrder("ACTIVE", "ACKNOWLEDGED")));
+
+        verify(alertService).getOpenAlerts(requested);
+    }
+
+    @Test
+    void shouldBindRepeatedStatusParamsLikeCommaSeparated() throws Exception {
+        List<AlertStatus> requested = List.of(AlertStatus.ACTIVE, AlertStatus.ACKNOWLEDGED);
+        when(alertService.getOpenAlerts(requested)).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/alerts").param("status", "ACTIVE", "ACKNOWLEDGED"))
+                .andExpect(status().isOk());
+
+        verify(alertService).getOpenAlerts(requested);
+    }
+
+    @Test
+    void shouldReturn400WithoutCallingServiceWhenStatusIsNotAnEnumValue() throws Exception {
+        // Enum conversion fails in the web layer (MethodArgumentTypeMismatchException), before the controller runs.
+        mockMvc.perform(get("/api/v1/alerts").param("status", "FOO"))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(alertService);
+    }
+
+    @Test
+    void shouldReturn400WithRejectedAndAllowedStatusesWhenFilterOutsideOpenSet() throws Exception {
+        when(alertService.getOpenAlerts(any()))
+                .thenThrow(new InvalidAlertStatusFilterException(
+                        List.of(AlertStatus.RESOLVED),
+                        List.of(AlertStatus.ACTIVE, AlertStatus.ACKNOWLEDGED)));
+
+        mockMvc.perform(get("/api/v1/alerts").param("status", "ACTIVE,RESOLVED"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.rejected.length()").value(1))
+                .andExpect(jsonPath("$.rejected[0]").value("RESOLVED"))
+                // The client needs to know what it may send instead, otherwise the 400 is not actionable.
+                .andExpect(jsonPath("$.allowed", containsInAnyOrder("ACTIVE", "ACKNOWLEDGED")))
                 .andExpect(jsonPath("$.trace").doesNotExist());
     }
 

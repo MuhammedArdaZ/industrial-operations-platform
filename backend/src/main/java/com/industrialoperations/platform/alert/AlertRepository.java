@@ -17,4 +17,6 @@ public interface AlertRepository extends JpaRepository<Alert, UUID> {
     List<Alert> findByMachineIdOrderByTriggeredAtDesc(UUID machineId);
 
     List<Alert> findByStatusOrderByTriggeredAtDesc(AlertStatus status);
+
+    List<Alert> findByStatusInOrderByTriggeredAtDesc(java.util.Collection<AlertStatus> statuses);
 }

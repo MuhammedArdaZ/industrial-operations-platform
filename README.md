@@ -176,6 +176,9 @@ curl -s http://localhost:8080/api/v1/machines/<MACHINE_ID>/latest-state | jq .
 # List all currently active alerts
 curl -s http://localhost:8080/api/v1/alerts | jq .
 
+# List all open alerts, including acknowledged ones (RESOLVED is rejected with 400)
+curl -s "http://localhost:8080/api/v1/alerts?status=ACTIVE,ACKNOWLEDGED" | jq .
+
 # List alert history for a specific machine
 curl -s http://localhost:8080/api/v1/alerts/machines/<MACHINE_ID> | jq .
 

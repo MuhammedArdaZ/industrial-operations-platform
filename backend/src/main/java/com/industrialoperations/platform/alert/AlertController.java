@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -21,8 +22,9 @@ public class AlertController {
     }
 
     @GetMapping
-    public ResponseEntity<List<AlertResponse>> getAlerts() {
-        List<AlertResponse> alerts = alertService.getActiveAlerts()
+    public ResponseEntity<List<AlertResponse>> getOpenAlerts(
+            @RequestParam(name = "status", required = false) List<AlertStatus> statuses) {
+        List<AlertResponse> alerts = alertService.getOpenAlerts(statuses)
                 .stream()
                 .map(AlertResponse::from)
                 .toList();
@@ -41,7 +43,7 @@ public class AlertController {
     }
 
     @PostMapping("/{alertId}/acknowledge")
-    public ResponseEntity<AlertResponse> postAcknowledgeAlert(@PathVariable UUID alertId){
+    public ResponseEntity<AlertResponse> postAcknowledgeAlert(@PathVariable UUID alertId) {
         Alert alertAcknowledged = alertService.acknowledgeAlert(alertId);
 
         return ResponseEntity.ok(AlertResponse.from(alertAcknowledged));

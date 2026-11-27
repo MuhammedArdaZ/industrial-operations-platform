@@ -3,6 +3,7 @@ package com.industrialoperations.platform.alert;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -152,7 +153,7 @@ public class AlertService {
     }
 
     public Alert acknowledgeAlert(UUID alertId) {
-        for (int attempt = 1; ; attempt++) {
+        for (int attempt = 1;; attempt++) {
             try {
                 return acknowledgeInNewTransaction(alertId);
             } catch (ObjectOptimisticLockingFailureException e) {
@@ -165,8 +166,19 @@ public class AlertService {
     }
 
     @Transactional(readOnly = true)
-    public List<Alert> getActiveAlerts() {
-        return alertRepository.findByStatusOrderByTriggeredAtDesc(AlertStatus.ACTIVE);
+    public List<Alert> getOpenAlerts(List<AlertStatus> statuses) {
+        if (statuses == null || statuses.isEmpty()) {
+            statuses = List.of(AlertStatus.ACTIVE);
+        }
+        if (statuses.stream().anyMatch(Objects::isNull)) {
+            throw new InvalidAlertStatusFilterException(OPEN_STATUSES);
+        }
+        if (!OPEN_STATUSES.containsAll(statuses)) {
+            List<AlertStatus> rejected = statuses.stream().filter(status -> !OPEN_STATUSES.contains(status)).distinct()
+                    .toList();
+            throw new InvalidAlertStatusFilterException(rejected, OPEN_STATUSES);
+        }
+        return alertRepository.findByStatusInOrderByTriggeredAtDesc(statuses);
     }
 
     @Transactional(readOnly = true)

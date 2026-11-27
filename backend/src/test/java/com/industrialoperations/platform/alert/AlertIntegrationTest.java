@@ -11,11 +11,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.containsStringIgnoringCase;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -276,5 +280,57 @@ public class AlertIntegrationTest extends AbstractIntegrationTest {
         telemetryService.recordTelemetry(createCommand(new BigDecimal("70.0"), new BigDecimal("0.10"), t1_delayed_clear));
         assertThat(alertRepository.findByStatusOrderByTriggeredAtDesc(AlertStatus.ACTIVE)).hasSize(1);
         assertThat(alertRepository.findByStatusOrderByTriggeredAtDesc(AlertStatus.RESOLVED)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/alerts?status=ACTIVE,ACKNOWLEDGED should return both open statuses; default stays ACTIVE only")
+    void shouldFilterOpenAlertsByStatusViaRestApi() throws Exception {
+        // 95°C + 0.90g -> two ACTIVE alerts (temperature and vibration)
+        telemetryService.recordTelemetry(createCommand(new BigDecimal("95.0"), new BigDecimal("0.90"), Instant.now()));
+        List<Alert> activeAlerts = alertRepository.findByStatusOrderByTriggeredAtDesc(AlertStatus.ACTIVE);
+        assertThat(activeAlerts).hasSize(2);
+
+        UUID acknowledgedId = activeAlerts.getFirst().getId();
+        mockMvc.perform(post("/api/v1/alerts/{alertId}/acknowledge", acknowledgedId))
+                .andExpect(status().isOk());
+
+        // Default: backward-compatible, ACTIVE only
+        mockMvc.perform(get("/api/v1/alerts"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].status").value("ACTIVE"));
+
+        // Both open statuses: the operator still sees the acknowledged alert
+        mockMvc.perform(get("/api/v1/alerts").param("status", "ACTIVE,ACKNOWLEDGED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[*].status", containsInAnyOrder("ACTIVE", "ACKNOWLEDGED")));
+
+        // ACKNOWLEDGED alone returns only the alert the operator took ownership of
+        mockMvc.perform(get("/api/v1/alerts").param("status", "ACKNOWLEDGED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(acknowledgedId.toString()));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/alerts?status=RESOLVED should return 400 with the rejected statuses")
+    void shouldReturn400WhenStatusFilterIncludesResolved() throws Exception {
+        mockMvc.perform(get("/api/v1/alerts").param("status", "RESOLVED"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.rejected[0]").value("RESOLVED"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/alerts?status=ACTIVE, (trailing comma) should return 400, not 500")
+    void shouldReturn400WhenStatusFilterHasEmptySegment() throws Exception {
+        // The empty segment binds to a null enum element; it must be rejected as a bad filter, not crash with an NPE.
+        mockMvc.perform(get("/api/v1/alerts").param("status", "ACTIVE,"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                // The client never sent a disallowed status name, so none may be reported back.
+                .andExpect(jsonPath("$.rejected").isEmpty())
+                .andExpect(jsonPath("$.detail", containsStringIgnoringCase("empty")));
     }
 }

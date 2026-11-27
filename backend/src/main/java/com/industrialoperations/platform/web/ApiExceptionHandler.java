@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.industrialoperations.platform.alert.AlertConcurrentModificationException;
 import com.industrialoperations.platform.alert.AlertNotFoundException;
+import com.industrialoperations.platform.alert.InvalidAlertStatusFilterException;
 import com.industrialoperations.platform.alert.InvalidAlertTransitionException;
 
 /**
@@ -42,6 +43,17 @@ public class ApiExceptionHandler {
         ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
                 "Alert was modified concurrently. Reload it and retry.");
         problemDetail.setProperty("alertId", ex.getAlertId());
+
+        return problemDetail;
+    }
+
+    @ExceptionHandler(InvalidAlertStatusFilterException.class)
+    public ProblemDetail handleInvalidAlertStatusFilter(InvalidAlertStatusFilterException ex) {
+        log.warn("Invalid alert status request, rejected={}", ex.getRejected());
+
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+        problemDetail.setProperty("rejected", ex.getRejected());
+        problemDetail.setProperty("allowed", ex.getAllowed());
 
         return problemDetail;
     }
